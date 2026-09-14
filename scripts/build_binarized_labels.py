@@ -3,9 +3,12 @@
 DATA_REPORT.md §5 decided to binarize labels with `label > 0` before training,
 folding all antialiased boundary pixels (see DATA_REPORT.md §3.2 discussion)
 into the roof class. This script writes that decision out as a real dataset
-at data_binarized/labels/ (pixel values strictly 0 or 1 — true binary, not
-0/255) and saves a visual comparison so the effect of binarization on the
-antialiased boundary is easy to see. The original data/labels/ is untouched.
+at data_binarized/labels/ — pixel values strictly {0, 255} (the standard
+binary-mask convention: still only two values, but a pixel value of 1/255
+would be indistinguishable from black in any viewer, so 255 is used for
+"roof" to keep the files directly viewable) — and saves a visual comparison
+so the effect of binarization on the antialiased boundary is easy to see.
+The original data/labels/ is untouched.
 """
 
 from __future__ import annotations
@@ -30,7 +33,7 @@ from roof_seg.config import BINARIZED_LABELS_DIR, IMAGES_DIR, INSPECTION_DIR, LA
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build a binarized (0/1) copy of the labels and visualize the boundary diff.",
+        description="Build a binarized (0/255) copy of the labels and visualize the boundary diff.",
     )
     parser.add_argument(
         "--overwrite",
@@ -55,7 +58,7 @@ def binarize_labels(overwrite: bool) -> list[str]:
             written.append(src.stem)
             continue
         arr = np.array(Image.open(src))
-        binary = (arr > 0).astype(np.uint8)  # strictly {0, 1}, not {0, 255}
+        binary = ((arr > 0) * 255).astype(np.uint8)  # strictly {0, 255} — viewable, still binary
         Image.fromarray(binary).save(dst)
         written.append(src.stem)
     return written
@@ -73,7 +76,7 @@ def visual_comparison(label_ids: list[str], n_samples: int) -> None:
     print("Boundary pixels reclassified as roof=1 by binarization:")
     for row, image_id in enumerate(sample_ids):
         raw = np.array(Image.open(LABELS_DIR / f"{image_id}.png"))
-        binary = np.array(Image.open(BINARIZED_LABELS_DIR / f"{image_id}.png")) * 255
+        binary = np.array(Image.open(BINARIZED_LABELS_DIR / f"{image_id}.png"))
         image = np.array(Image.open(IMAGES_DIR / f"{image_id}.png"))[..., :3]
 
         # Diff: pixels that were 1-254 (antialiased boundary) and got rounded up to roof=1.
@@ -111,7 +114,7 @@ def main() -> int:
     INSPECTION_DIR.mkdir(parents=True, exist_ok=True)
 
     label_ids = binarize_labels(args.overwrite)
-    print(f"Wrote {len(label_ids)} binarized labels (values strictly 0/1) to {BINARIZED_LABELS_DIR}")
+    print(f"Wrote {len(label_ids)} binarized labels (values strictly 0/255) to {BINARIZED_LABELS_DIR}")
     print(f"Original labels left untouched at {LABELS_DIR}")
 
     visual_comparison(label_ids, args.compare_samples)

@@ -18,7 +18,7 @@ help:
 	@echo "  make install           install dependencies + roof_seg package into $(VENV_DIR)"
 	@echo "  make inspect           run dataset inspection (SPEC 3.2)"
 	@echo "  make rgb-dataset       build the RGB-only (alpha-dropped) dataset copy at data_rgb/"
-	@echo "  make binarized-labels  build the binarized (0/1) labels copy at data_binarized/ + comparison figure"
+	@echo "  make binarized-labels  build the binarized (0/255) labels copy at data_binarized/ + comparison figure"
 	@echo "  make train             run training (SPEC 3.6); EPOCHS=$(EPOCHS) SEED=$(SEED)"
 	@echo "  make predict           run inference on test images (SPEC 3.8); CHECKPOINT=$(CHECKPOINT)"
 	@echo "  make test              run the test suite with pytest"

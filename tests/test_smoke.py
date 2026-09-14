@@ -103,12 +103,12 @@ def test_binarized_labels_match_original_thresholded():
     with Image.open(LABELS_DIR / "241.png") as raw, Image.open(BINARIZED_LABELS_DIR / "241.png") as binary:
         raw_arr = np.array(raw)
         binary_arr = np.array(binary)
-        assert set(np.unique(binary_arr).tolist()) <= {0, 1}
-        assert np.array_equal(binary_arr, (raw_arr > 0).astype(np.uint8))
-        # boundary pixels (1-254 in the raw label) exist and were pulled into roof=1
+        assert set(np.unique(binary_arr).tolist()) <= {0, 255}
+        assert np.array_equal(binary_arr, ((raw_arr > 0) * 255).astype(np.uint8))
+        # boundary pixels (1-254 in the raw label) exist and were pulled into roof=255
         boundary = (raw_arr > 0) & (raw_arr < 255)
         assert boundary.any()
-        assert (binary_arr[boundary] == 1).all()
+        assert (binary_arr[boundary] == 255).all()
 
 
 def test_set_seed_is_reproducible():
