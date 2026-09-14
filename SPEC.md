@@ -106,16 +106,16 @@ Alternative (`label >= 128`) may be used if documented; both should be evaluated
 
 **Done when:**
 
-- [ ] File inventory is complete and matches §2 (25 train pairs, 5 test-only images, no surprises).
-- [ ] All image–label pairs have matching spatial dimensions.
-- [ ] At least one grid visualization exists: image \| label \| overlay for a representative sample of train pairs (≥5).
-- [ ] Duplicate or mismatched label cases are explicitly listed (e.g. `270`/`278`) with a stated impact on training (keep both, drop one, etc.).
-- [ ] Alpha-channel audit is complete for all 30 images: for each image, `% fully opaque` is recorded; any image with `alpha < 255` is flagged.
-- [ ] A clear **RGB conversion decision** is documented: either “safe to drop alpha everywhere” or “handle exceptions” with a per-image rule.
-- [ ] Label binarization rule (`> 0` vs `>= 128`) is chosen based on comparison plots/counts and recorded as the preprocessing default for §3.3.
-- [ ] Roof foreground ratio per labeled image is tabulated; extreme outliers are noted.
-- [ ] All 5 test images have been visually inspected and any anomalies (censorship, missing roofs, format quirks) are noted.
-- [ ] Findings summary is written and linked from the project README.
+- [x] File inventory is complete and matches §2 (25 train pairs, 5 test-only images, no surprises).
+- [x] All image–label pairs have matching spatial dimensions.
+- [x] At least one grid visualization exists: image \| label \| overlay for a representative sample of train pairs (≥5).
+- [x] Duplicate or mismatched label cases are explicitly listed (e.g. `270`/`278`) with a stated impact on training (keep both, drop one, etc.).
+- [x] Alpha-channel audit is complete for all 30 images: for each image, `% fully opaque` is recorded; any image with `alpha < 255` is flagged.
+- [x] A clear **RGB conversion decision** is documented: either “safe to drop alpha everywhere” or “handle exceptions” with a per-image rule.
+- [x] Label binarization rule (`> 0` vs `>= 128`) is chosen based on comparison plots/counts and recorded as the preprocessing default for §3.3.
+- [x] Roof foreground ratio per labeled image is tabulated; extreme outliers are noted.
+- [x] All 5 test images have been visually inspected and any anomalies (censorship, missing roofs, format quirks) are noted.
+- [x] Findings summary is written and linked from the project README.
 
 ---
 
@@ -269,7 +269,7 @@ Before submission, confirm:
 
 | # | Check | Pass |
 |---|---|---|
-| 1 | Data inspection completed; findings documented (alpha, label quirks, binarization rule) | ☐ |
+| 1 | Data inspection completed; findings documented (alpha, label quirks, binarization rule) | ☑ |
 | 2 | 25 train pairs used; 5 test images never seen during training | ☐ |
 | 3 | Pretrained segmentation model with documented architecture | ☐ |
 | 4 | Data augmentation applied during training | ☐ |
@@ -304,9 +304,9 @@ Record the chosen option in the write-up when decided:
 
 | Decision | Options | Recommendation | Decide in |
 |---|---|---|---|
-| Label threshold | `> 0` vs `>= 128` | Compare on overlays; default `> 0` | §3.2 |
-| Alpha handling | Drop vs ignore-mask vs composite | Audit all 30 images first | §3.2 |
-| Mismatched pairs | Keep / drop / relabel | Document case-by-case (e.g. `270`/`278`) | §3.2 |
+| Label threshold | `> 0` vs `>= 128` | **Decided: `> 0`** — see [DATA_REPORT.md §5](DATA_REPORT.md#5-label-value-distribution--binarization-rule) | §3.2 |
+| Alpha handling | Drop vs ignore-mask vs composite | **Decided: drop alpha, RGB only** — see [DATA_REPORT.md §4](DATA_REPORT.md#4-alpha-channel-audit) | §3.2 |
+| Mismatched pairs | Keep / drop / relabel | **Decided: keep both `270`/`278`** — see [DATA_REPORT.md §3](DATA_REPORT.md#3-duplicate--inconsistent-labels) | §3.2 |
 | Validation split | 5-fold CV vs fixed 20/5 hold-out | Fixed hold-out for speed | §3.6 |
 | Model | U-Net vs DeepLabV3+ | U-Net + ResNet34 via `smp` | §3.5 |
 | Loss | BCE, Dice, BCE+Dice | BCE + Dice | §3.6 |

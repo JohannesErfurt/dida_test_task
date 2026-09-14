@@ -3,6 +3,7 @@
 Take-home task: train a neural network to predict pixel-wise roof masks from aerial satellite images, evaluate on held-out test tiles, and document the approach for discussion.
 
 > **Full specification:** see [`SPEC.md`](SPEC.md) for goals, subtasks, acceptance criteria, and open decisions.
+> **Data inspection findings:** see [`DATA_REPORT.md`](DATA_REPORT.md) for the dataset audit and preprocessing decisions (alpha handling, label binarization, duplicate labels).
 
 ## Original task
 
@@ -136,7 +137,7 @@ Final choices are recorded in the write-up after data inspection and validation 
 
 ## Deliverables
 
-- [ ] Data inspection report (`DATA_REPORT.md` or notebook)
+- [x] Data inspection report (`DATA_REPORT.md` or notebook)
 - [ ] Reproducible training and inference code
 - [ ] Model checkpoint
 - [ ] 5 prediction PNGs for the test set
@@ -149,7 +150,7 @@ See the [acceptance checklist in SPEC.md](SPEC.md#4-acceptance-checklist-final-r
 | Step | Status |
 |---|---|
 | 3.1 Project setup | Done |
-| 3.2 Data inspection | Not started |
+| 3.2 Data inspection | Done |
 | 3.3 Data loading | Not started |
 | 3.4 Augmentation | Not started |
 | 3.5 Model | Not started |

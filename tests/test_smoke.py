@@ -57,6 +57,15 @@ def test_ensure_output_dirs_creates_directories(tmp_path, monkeypatch):
     assert fake_inspection.is_dir()
 
 
+def test_known_duplicate_labels_are_identical():
+    import numpy as np
+    from PIL import Image
+
+    a = np.array(Image.open(LABELS_DIR / "270.png"))
+    b = np.array(Image.open(LABELS_DIR / "278.png"))
+    assert np.array_equal(a, b)
+
+
 def test_set_seed_is_reproducible():
     set_seed(RANDOM_SEED)
     a = (random.random(), np.random.rand())
