@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from roof_seg.config import (
+    BINARIZED_LABELS_DIR,
     IMAGES_DIR,
     IMAGE_SIZE,
     LABELS_DIR,
@@ -86,6 +87,28 @@ def test_rgb_dataset_matches_original_minus_alpha():
         assert orig.mode == "RGBA"
         assert rgb.mode == "RGB"
         assert np.array_equal(np.array(orig)[..., :3], np.array(rgb))
+
+
+def test_binarized_labels_match_original_thresholded():
+    """data_binarized/labels/ (built by scripts/build_binarized_labels.py) equals label > 0."""
+    from PIL import Image
+
+    if not BINARIZED_LABELS_DIR.is_dir():
+        pytest.skip("data_binarized/ not built yet — run scripts/build_binarized_labels.py")
+
+    binarized_ids = sorted(p.stem for p in BINARIZED_LABELS_DIR.glob("*.png"))
+    orig_labels = sorted(p.stem for p in LABELS_DIR.glob("*.png"))
+    assert binarized_ids == orig_labels
+
+    with Image.open(LABELS_DIR / "241.png") as raw, Image.open(BINARIZED_LABELS_DIR / "241.png") as binary:
+        raw_arr = np.array(raw)
+        binary_arr = np.array(binary)
+        assert set(np.unique(binary_arr).tolist()) <= {0, 1}
+        assert np.array_equal(binary_arr, (raw_arr > 0).astype(np.uint8))
+        # boundary pixels (1-254 in the raw label) exist and were pulled into roof=1
+        boundary = (raw_arr > 0) & (raw_arr < 255)
+        assert boundary.any()
+        assert (binary_arr[boundary] == 1).all()
 
 
 def test_set_seed_is_reproducible():

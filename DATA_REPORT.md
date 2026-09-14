@@ -45,6 +45,8 @@ Comparing binarization rules per image:
 
 **Decision:** use `mask = (label > 0)`, per the SPEC's canonical rule. It preserves the full annotated roof footprint (including boundary pixels drawn by the labeler as part of the roof polygon) rather than arbitrarily discarding the lighter half of the boundary, and boundary pixels are a small enough fraction (4.08%) that the choice has limited impact either way.
 
+The antialiased `1`–`254` boundary values (see §3's discussion) come from rasterizing vector roof polygons — a generic rendering default, not something done for this ML task — and would need scaling/clamping to be usable as a hard BCE/Dice target regardless. This decision is materialized as an actual dataset via `scripts/build_binarized_labels.py` (`make binarized-labels`), which writes strictly-`{0,1}`-valued labels to `data_binarized/labels/` and renders `outputs/inspection/binarization_comparison.png` — image | raw label | binarized label | the boundary pixels reclassified as roof=1 — for a handful of samples. The original `data/labels/` is left untouched.
+
 ## 6. Class balance
 
 Roof foreground ratio (`label > 0`) per training image ranges from **6.09%** (`274`) to **31.48%** (`270`, now the sole highest outlier after `278` was dropped), mean 16.00%, std 4.99%. Background dominates every image, confirming the class imbalance noted in the SPEC.
@@ -64,7 +66,7 @@ All 6 test images (`278`, `535`, `537`, `539`, `551`, `553`) are 256×256 RGBA, 
 | Decision | Choice | Rationale |
 |---|---|---|
 | Model input channels | RGB (drop alpha); materialized at `data_rgb/` via `scripts/build_rgb_dataset.py` | Alpha only flags already-black censorship boxes; negligible overlap with roof pixels |
-| Label binarization | `mask = (label > 0)` | SPEC default; preserves full roof footprint; boundary is only 4.08% of pixels |
+| Label binarization | `mask = (label > 0)`; materialized at `data_binarized/labels/` via `scripts/build_binarized_labels.py` | SPEC default; preserves full roof footprint; boundary is only 4.08% of pixels |
 | Wrong label (`278`) | **Label deleted, image moved to `TEST_IDS`** | `278`'s label was `270`'s (copy/paste error); training on it would teach a wrong mapping. Kept the image so it still gets a prediction |
 | Loss function | BCE + Dice | Roof coverage 6–31% of frame — background-dominated, imbalance-sensitive |
 | Test-set membership | `TEST_IDS` in `roof_seg/config.py` (now 6 IDs) | Confirmed to match the 6 images with no label file |

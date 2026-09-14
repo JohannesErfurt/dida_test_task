@@ -15,6 +15,11 @@ RGB_DATA_DIR = PROJECT_ROOT / "data_rgb"
 RGB_IMAGES_DIR = RGB_DATA_DIR / "images"
 RGB_LABELS_DIR = RGB_DATA_DIR / "labels"
 
+# Binarized copy of the labels (pixel values strictly {0, 1} via `label > 0`), built by
+# scripts/build_binarized_labels.py per the DATA_REPORT.md §5 decision. The original
+# labels (with antialiased 1-254 boundary values) above are left untouched.
+BINARIZED_LABELS_DIR = PROJECT_ROOT / "data_binarized" / "labels"
+
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 CHECKPOINTS_DIR = OUTPUTS_DIR / "checkpoints"
 PREDICTIONS_DIR = OUTPUTS_DIR / "predictions"
