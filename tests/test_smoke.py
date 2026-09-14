@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from roof_seg.config import (
+    BINARIZED_128_LABELS_DIR,
     BINARIZED_LABELS_DIR,
     IMAGES_DIR,
     IMAGE_SIZE,
@@ -109,6 +110,33 @@ def test_binarized_labels_match_original_thresholded():
         boundary = (raw_arr > 0) & (raw_arr < 255)
         assert boundary.any()
         assert (binary_arr[boundary] == 255).all()
+
+
+def test_binarized_128_labels_match_original_thresholded():
+    """data_binarized_128/labels/ (scripts/build_binarized_labels_128.py) equals 255*(label > 128)."""
+    from PIL import Image
+
+    if not BINARIZED_128_LABELS_DIR.is_dir():
+        pytest.skip("data_binarized_128/ not built yet — run scripts/build_binarized_labels_128.py")
+
+    binarized_ids = sorted(p.stem for p in BINARIZED_128_LABELS_DIR.glob("*.png"))
+    orig_labels = sorted(p.stem for p in LABELS_DIR.glob("*.png"))
+    assert binarized_ids == orig_labels
+
+    with Image.open(LABELS_DIR / "241.png") as raw, Image.open(BINARIZED_128_LABELS_DIR / "241.png") as binary:
+        raw_arr = np.array(raw)
+        binary_arr = np.array(binary)
+        assert set(np.unique(binary_arr).tolist()) <= {0, 255}
+        assert np.array_equal(binary_arr, (255 * (raw_arr > 128).astype(np.uint8)).astype(np.uint8))
+
+    if BINARIZED_LABELS_DIR.is_dir():
+        # The >128 rule must be strictly more conservative than >0: every roof=255
+        # pixel under >128 must also be roof=255 under >0 (never the other way around).
+        with Image.open(BINARIZED_LABELS_DIR / "241.png") as gt0, \
+             Image.open(BINARIZED_128_LABELS_DIR / "241.png") as gt128:
+            gt0_arr = np.array(gt0)
+            gt128_arr = np.array(gt128)
+            assert ((gt128_arr == 255) <= (gt0_arr == 255)).all()
 
 
 def test_set_seed_is_reproducible():

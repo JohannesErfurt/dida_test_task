@@ -20,6 +20,11 @@ RGB_LABELS_DIR = RGB_DATA_DIR / "labels"
 # labels (with antialiased 1-254 boundary values) above are left untouched.
 BINARIZED_LABELS_DIR = PROJECT_ROOT / "data_binarized" / "labels"
 
+# Alternative binarization using the SPEC's other candidate threshold: label = 255 * (label > 128)
+# (pixel values strictly {0, 255}), built by scripts/build_binarized_labels_128.py. Both this and
+# BINARIZED_LABELS_DIR above are kept side by side for comparison — see DATA_REPORT.md §5.
+BINARIZED_128_LABELS_DIR = PROJECT_ROOT / "data_binarized_128" / "labels"
+
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 CHECKPOINTS_DIR = OUTPUTS_DIR / "checkpoints"
 PREDICTIONS_DIR = OUTPUTS_DIR / "predictions"

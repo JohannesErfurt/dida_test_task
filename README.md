@@ -26,13 +26,16 @@ Build a **binary semantic segmentation** pipeline that:
 | Roof labels | `data/labels/{id}.png` | 24 | 256×256 grayscale |
 | Satellite images, RGB-only | `data_rgb/images/{id}.png` | 30 | 256×256 RGB |
 | Roof labels (copy) | `data_rgb/labels/{id}.png` | 24 | 256×256 grayscale |
-| Roof labels, binarized | `data_binarized/labels/{id}.png` | 24 | 256×256 grayscale, values strictly `{0, 255}` |
+| Roof labels, binarized (`label > 0`) | `data_binarized/labels/{id}.png` | 24 | 256×256 grayscale, values strictly `{0, 255}` |
+| Roof labels, binarized (`label > 128`) | `data_binarized_128/labels/{id}.png` | 24 | 256×256 grayscale, values strictly `{0, 255}` |
 
 Of the original 30 images / 25 labels, **`278`'s label was wrong**: on inspection it is clearly not `278`'s roof mask at all, but a byte-identical copy of `270`'s label — almost certainly a copy/paste annotation error. Training on it would teach the model an incorrect image→mask mapping and hurt prediction quality, so `data/labels/278.png` has been **deleted**. `278`'s image was kept and moved into the test set instead (`TEST_IDS` in `roof_seg/config.py`), so it still gets a prediction once the model is trained — it just never contributes a (wrong) training signal. See [`DATA_REPORT.md` §3](DATA_REPORT.md#3-duplicate--inconsistent-labels--278s-label-is-wrong) for the full writeup.
 
 `data_rgb/` is a generated copy of the dataset with the alpha channel dropped (per the [DATA_REPORT.md §4](DATA_REPORT.md#4-alpha-channel-audit) decision), built by `scripts/build_rgb_dataset.py` (`make rgb-dataset`). The original RGBA dataset in `data/` is left untouched; `data_rgb/` is provided as an inspectable, materialized preprocessing artifact.
 
-`data_binarized/labels/` is a generated copy of the labels with `mask = (label > 0)` applied (per the [DATA_REPORT.md §5](DATA_REPORT.md#5-label-value-distribution--binarization-rule) decision), built by `scripts/build_binarized_labels.py` (`make binarized-labels`). Unlike the raw labels — which contain antialiased boundary pixels valued `1`–`254` from rasterizing the roof polygons (see [DATA_REPORT.md §3.2 discussion](DATA_REPORT.md)) — every pixel here is strictly `0` or `255` (the standard binary-mask convention — a pixel value of `1`/255 would be indistinguishable from black in any image viewer). The same script also renders `outputs/inspection/binarization_comparison.png`: image | raw label | binarized label | the boundary pixels that got pulled into the roof class, for a handful of samples, so the effect is visible directly rather than just described. The original `data/labels/` is left untouched.
+`data_binarized/labels/` is a generated copy of the labels with `mask = (label > 0)` applied (the SPEC's chosen rule — see [DATA_REPORT.md §5](DATA_REPORT.md#5-label-value-distribution--binarization-rule)), built by `scripts/build_binarized_labels.py` (`make binarized-labels`). Unlike the raw labels — which contain antialiased boundary pixels valued `1`–`254` from rasterizing the roof polygons (see [DATA_REPORT.md §3.2 discussion](DATA_REPORT.md)) — every pixel here is strictly `0` or `255` (the standard binary-mask convention — a pixel value of `1`/255 would be indistinguishable from black in any image viewer). The same script also renders `outputs/inspection/binarization_comparison.png`: image | raw label | binarized label | the boundary pixels that got pulled into the roof class, for a handful of samples, so the effect is visible directly rather than just described. The original `data/labels/` is left untouched.
+
+`data_binarized_128/labels/` is the same idea with the SPEC's *other* candidate threshold: `label = 255 * (label > 128)`, built by `scripts/build_binarized_labels_128.py` (`make binarized-labels-128`). It's kept **alongside**, not instead of, `data_binarized/` — the SPEC decision (`> 0`) is unchanged, this is purely for comparison. Since `> 128` only counts the darker (more-covered) half of each antialiased boundary pixel as roof, it produces a slightly smaller, tighter mask than `> 0`. The script also renders `outputs/inspection/binarization_threshold_comparison.png`: image | raw label | `>0` | `>128` | where the two rules disagree, for the same samples.
 
 **Train set:** the 24 images in `data/images/` that have a matching label in `data/labels/`.
 
@@ -64,18 +67,21 @@ dida_test_task/
 ├── data_rgb/                 # Generated: data/ with alpha dropped (see scripts/build_rgb_dataset.py)
 │   ├── images/                # 30 satellite tiles (RGB)
 │   └── labels/                # 24 roof masks (unchanged copy)
-├── data_binarized/            # Generated: data/labels/ with mask = (label > 0) applied
+├── data_binarized/            # Generated: data/labels/ with mask = (label > 0) applied (SPEC's chosen rule)
+│   └── labels/                 # 24 roof masks, values strictly {0, 255}
+├── data_binarized_128/        # Generated: data/labels/ with label = 255*(label > 128) — for comparison only
 │   └── labels/                 # 24 roof masks, values strictly {0, 255}
 ├── roof_seg/                # Python package (config, seeds, pipeline modules)
 │   ├── config.py            # Paths, test IDs, defaults (seed = 42)
 │   ├── seed.py              # Reproducibility helper
 │   └── paths.py             # Output directory setup
 ├── scripts/
-│   ├── inspect_data.py           # Data quality analysis (§3.2)
-│   ├── build_rgb_dataset.py      # Materialize the RGB-only dataset copy
-│   ├── build_binarized_labels.py # Materialize the binarized labels copy + comparison figure
-│   ├── train.py                  # Model training (§3.6)
-│   └── predict.py                # Test-set inference (§3.8)
+│   ├── inspect_data.py               # Data quality analysis (§3.2)
+│   ├── build_rgb_dataset.py          # Materialize the RGB-only dataset copy
+│   ├── build_binarized_labels.py     # Materialize the label > 0 binarized labels + comparison figure
+│   ├── build_binarized_labels_128.py # Materialize the label > 128 binarized labels + comparison figure
+│   ├── train.py                      # Model training (§3.6)
+│   └── predict.py                    # Test-set inference (§3.8)
 ├── notebooks/               # Exploratory notebooks
 ├── outputs/
 │   ├── checkpoints/         # Saved model weights
@@ -121,14 +127,15 @@ python scripts/predict.py --checkpoint outputs/checkpoints/best_model.pt
 Equivalent targets are available via `make` (Git Bash / WSL / any shell with `make`):
 
 ```bash
-make install          # create .venv and install dependencies + roof_seg package
-make inspect          # run dataset inspection
-make rgb-dataset      # build the RGB-only (alpha-dropped) dataset copy at data_rgb/
-make binarized-labels # build the binarized (0/255) labels copy at data_binarized/ + comparison figure
-make train            # run training (EPOCHS=50 SEED=42 by default, e.g. make train EPOCHS=10)
-make predict          # run inference on the 6 test images
-make test             # run the test suite with pytest
-make clean            # remove generated outputs (checkpoints, predictions, inspection)
+make install              # create .venv and install dependencies + roof_seg package
+make inspect              # run dataset inspection
+make rgb-dataset          # build the RGB-only (alpha-dropped) dataset copy at data_rgb/
+make binarized-labels     # build the label > 0 binarized labels copy at data_binarized/ + comparison figure
+make binarized-labels-128 # build the label > 128 binarized labels copy at data_binarized_128/ + comparison figure
+make train                # run training (EPOCHS=50 SEED=42 by default, e.g. make train EPOCHS=10)
+make predict              # run inference on the 6 test images
+make test                 # run the test suite with pytest
+make clean                # remove generated outputs (checkpoints, predictions, inspection)
 make distclean        # clean + remove the virtualenv
 ```
 
