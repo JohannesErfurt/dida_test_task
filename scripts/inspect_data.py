@@ -32,7 +32,6 @@ from roof_seg.config import (  # noqa: E402
     LABELS_DIR,
     RANDOM_SEED,
     TEST_IDS,
-    WRONG_LABEL_DIR,
 )
 from roof_seg.paths import ensure_output_dirs  # noqa: E402
 from roof_seg.seed import set_seed  # noqa: E402
@@ -68,21 +67,18 @@ def load_label(image_id: str) -> np.ndarray:
 def file_inventory() -> tuple[list[str], list[str]]:
     image_ids = sorted(p.stem for p in IMAGES_DIR.glob("*.png"))
     label_ids = sorted(p.stem for p in LABELS_DIR.glob("*.png"))
-    excluded_ids = sorted(p.stem for p in WRONG_LABEL_DIR.glob("*.png"))
-    expected_images = 30 - len(excluded_ids)
-    expected_labels = expected_images - len(TEST_IDS)
+    expected_labels = 30 - len(TEST_IDS)
 
     print("=== 1. File inventory ===")
-    print(f"Images found: {len(image_ids)} (expected {expected_images}, after excluding {excluded_ids})")
+    print(f"Images found: {len(image_ids)} (expected 30)")
     print(f"Labels found: {len(label_ids)} (expected {expected_labels})")
-    print(f"Excluded pairs (data/wrong_label/, not used for training or testing): {excluded_ids}")
 
     orphan_labels = sorted(set(label_ids) - set(image_ids))
     train_only_images = sorted(set(image_ids) - set(label_ids))
     expected_test = sorted(TEST_IDS)
 
     print(f"Orphan labels (label without image): {orphan_labels or 'none'}")
-    print(f"Images without a label (candidate test set): {train_only_images}")
+    print(f"Images without a label (test set): {train_only_images}")
     print(f"Expected test IDs from config: {expected_test}")
     assert train_only_images == expected_test, (
         "Images without labels do not match TEST_IDS in roof_seg/config.py"
@@ -125,9 +121,10 @@ def find_duplicate_labels(label_ids: list[str]) -> dict[str, list[str]]:
     else:
         print("No duplicate labels found.")
     print(
-        "Note: image/label pair 278 was excluded from the dataset (its label was a "
-        f"byte-identical duplicate of 270's); the original image is kept at {WRONG_LABEL_DIR} "
-        "for reference — see DATA_REPORT.md §3."
+        "Note: 278's original label was a byte-identical duplicate of 270's and clearly did "
+        "not correspond to image 278 (almost certainly a copy/paste annotation error). Rather "
+        "than train on a wrong label, it was deleted and 278 was moved into TEST_IDS instead — "
+        "see DATA_REPORT.md §3."
     )
     return duplicates
 
@@ -198,7 +195,7 @@ def label_value_distribution(label_ids: list[str]) -> dict:
     ax.axvline(128, color="crimson", linestyle="--", label="threshold = 128")
     ax.set_xlabel("Label pixel value")
     ax.set_ylabel("Pixel count (log scale)")
-    ax.set_title("Label value distribution across all 25 training labels")
+    ax.set_title(f"Label value distribution across all {len(label_ids)} training labels")
     ax.legend()
     fig.tight_layout()
     fig.savefig(INSPECTION_DIR / "label_value_histogram.png", dpi=120)

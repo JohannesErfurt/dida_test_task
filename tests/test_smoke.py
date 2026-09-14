@@ -12,7 +12,6 @@ from roof_seg.config import (
     LABELS_DIR,
     RANDOM_SEED,
     TEST_IDS,
-    WRONG_LABEL_DIR,
 )
 from roof_seg.paths import ensure_output_dirs, CHECKPOINTS_DIR, INSPECTION_DIR, PREDICTIONS_DIR
 from roof_seg.seed import set_seed
@@ -26,18 +25,17 @@ def test_data_dirs_exist():
 def test_image_inventory():
     images = sorted(p.stem for p in IMAGES_DIR.glob("*.png"))
     labels = sorted(p.stem for p in LABELS_DIR.glob("*.png"))
-    assert len(images) == 29
+    assert len(images) == 30
     assert len(labels) == 24
     assert set(labels).issubset(set(images))
-    assert "278" not in images
     assert "278" not in labels
 
 
-def test_excluded_pair_kept_for_reference():
-    """278 was dropped (duplicate label of 270); its original image is kept in wrong_label/."""
-    assert (WRONG_LABEL_DIR / "278.png").is_file()
-    assert not (IMAGES_DIR / "278.png").exists()
+def test_wrong_label_was_deleted_and_image_moved_to_test_set():
+    """278's label was wrong (a copy of 270's); it's deleted and 278 is now a test image."""
+    assert (IMAGES_DIR / "278.png").is_file()
     assert not (LABELS_DIR / "278.png").exists()
+    assert "278" in TEST_IDS
 
 
 def test_test_ids_have_no_labels():
@@ -65,15 +63,6 @@ def test_ensure_output_dirs_creates_directories(tmp_path, monkeypatch):
     assert fake_checkpoints.is_dir()
     assert fake_predictions.is_dir()
     assert fake_inspection.is_dir()
-
-
-def test_wrong_label_image_is_valid():
-    """The excluded 278 image is kept intact (256x256 RGBA) even though it's unused."""
-    from PIL import Image
-
-    with Image.open(WRONG_LABEL_DIR / "278.png") as im:
-        assert im.size == (256, 256)
-        assert im.mode == "RGBA"
 
 
 def test_set_seed_is_reproducible():

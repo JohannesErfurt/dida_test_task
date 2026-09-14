@@ -3,7 +3,7 @@
 Take-home task: train a neural network to predict pixel-wise roof masks from aerial satellite images, evaluate on held-out test tiles, and document the approach for discussion.
 
 > **Full specification:** see [`SPEC.md`](SPEC.md) for goals, subtasks, acceptance criteria, and open decisions.
-> **Data inspection findings:** see [`DATA_REPORT.md`](DATA_REPORT.md) for the dataset audit and preprocessing decisions (alpha handling, label binarization, duplicate labels).
+> **Data inspection findings:** see [`DATA_REPORT.md`](DATA_REPORT.md) for the dataset audit and preprocessing decisions (alpha handling, label binarization, the wrong `278` label).
 
 ## Original task
 
@@ -15,22 +15,21 @@ Build a **binary semantic segmentation** pipeline that:
 
 1. Inspects and documents the dataset
 2. Trains on labeled image–mask pairs
-3. Predicts roof masks for **5 test images** (no labels provided)
+3. Predicts roof masks for **6 test images** (no labels provided)
 4. Delivers predictions plus a short write-up explaining model choice, preprocessing, and limitations
 
 ## Dataset
 
 | Asset | Path | Count | Format |
 |---|---|---|---|
-| Satellite images | `data/images/{id}.png` | 29 | 256×256 RGBA |
+| Satellite images | `data/images/{id}.png` | 30 | 256×256 RGBA |
 | Roof labels | `data/labels/{id}.png` | 24 | 256×256 grayscale |
-| Excluded pair (reference only) | `data/wrong_label/278.png` | 1 | 256×256 RGBA |
 
-Of the original 30 images / 25 labels, image/label pair **`278` was excluded**: its label was byte-identical to `270`'s (wrong for its own image), so it was pulled out rather than trained on. See [`DATA_REPORT.md` §3](DATA_REPORT.md#3-duplicate--inconsistent-labels) for details. `278.png` (the image only) is kept in `data/wrong_label/` for reference; it is not read by any training or inference code.
+Of the original 30 images / 25 labels, **`278`'s label was wrong**: on inspection it is clearly not `278`'s roof mask at all, but a byte-identical copy of `270`'s label — almost certainly a copy/paste annotation error. Training on it would teach the model an incorrect image→mask mapping and hurt prediction quality, so `data/labels/278.png` has been **deleted**. `278`'s image was kept and moved into the test set instead (`TEST_IDS` in `roof_seg/config.py`), so it still gets a prediction once the model is trained — it just never contributes a (wrong) training signal. See [`DATA_REPORT.md` §3](DATA_REPORT.md#3-duplicate--inconsistent-labels--278s-label-is-wrong) for the full writeup.
 
 **Train set:** the 24 images in `data/images/` that have a matching label in `data/labels/`.
 
-**Test set (inference only):** `535`, `537`, `539`, `551`, `553`.
+**Test set (inference only):** `278`, `535`, `537`, `539`, `551`, `553`.
 
 Labels use `0` for background, `255` for roof interior, and `1–254` for boundary pixels. The binarization rule is chosen during data inspection (see [`SPEC.md` §3.2](SPEC.md#32-data-inspection-and-quality-analysis)).
 
@@ -53,9 +52,8 @@ Project setup
 ```
 dida_test_task/
 ├── data/
-│   ├── images/               # 29 satellite tiles (278 excluded, see below)
-│   ├── labels/                # 24 roof masks
-│   └── wrong_label/           # 278.png — excluded image, kept for reference only
+│   ├── images/               # 30 satellite tiles
+│   └── labels/                # 24 roof masks (278's wrong label deleted; 278 moved to TEST_IDS)
 ├── roof_seg/                # Python package (config, seeds, pipeline modules)
 │   ├── config.py            # Paths, test IDs, defaults (seed = 42)
 │   ├── seed.py              # Reproducibility helper
@@ -121,6 +119,7 @@ make distclean # clean + remove the virtualenv
 Expected test outputs:
 
 ```
+outputs/predictions/278.png
 outputs/predictions/535.png
 outputs/predictions/537.png
 outputs/predictions/539.png
