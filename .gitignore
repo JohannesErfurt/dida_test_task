@@ -1,0 +1,28 @@
+# Environment
+.venv/
+venv/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Outputs (keep directory structure)
+outputs/checkpoints/*
+outputs/predictions/*
+outputs/inspection/*
+!outputs/checkpoints/.gitkeep
+!outputs/predictions/.gitkeep
+!outputs/inspection/.gitkeep
+
+# OS / archive artifacts
+.DS_Store
+__MACOSX/
+Thumbs.db
