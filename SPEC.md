@@ -2,14 +2,14 @@
 
 ## 1. Goal
 
-Train a neural network to predict **pixel-wise roof masks** from satellite imagery, using **25 labeled image–mask pairs**, and produce **roof predictions for 5 held-out test images**. Deliver the predictions together with a concise explanation of the approach suitable for a technical discussion.
+Train a neural network to predict **pixel-wise roof masks** from satellite imagery, using **24 labeled image–mask pairs** (25 originally; one pair excluded — see §2), and produce **roof predictions for 5 held-out test images**. Deliver the predictions together with a concise explanation of the approach suitable for a technical discussion.
 
 ### Success criteria (overall)
 
 The task is complete when all of the following are true:
 
 - [ ] Data has been inspected and preprocessing decisions (RGB, label threshold, flagged inconsistencies) are documented.
-- [ ] A reproducible training pipeline trains on the 25 labeled pairs without using the 5 test images.
+- [ ] A reproducible training pipeline trains on the 24 labeled pairs without using the 5 test images.
 - [ ] Predicted roof masks exist for test images `535`, `537`, `539`, `551`, and `553`.
 - [ ] Predictions are visually plausible roof outlines on the satellite tiles (not blank, not full-frame, not random noise).
 - [ ] A short write-up explains model choice, preprocessing, training strategy, and limitations.
@@ -30,15 +30,17 @@ The task is complete when all of the following are true:
 
 | Asset | Location | Count | Format |
 |---|---|---|---|
-| Satellite images | `images/{id}.png` | 30 | 256×256 RGBA, uint8 |
-| Roof labels | `labels/{id}.png` | 25 | 256×256 grayscale, uint8 |
+| Satellite images | `data/images/{id}.png` | 29 (30 originally; `278` excluded, see below) | 256×256 RGBA, uint8 |
+| Roof labels | `data/labels/{id}.png` | 24 (25 originally; `278` excluded, see below) | 256×256 grayscale, uint8 |
+| Excluded pair (reference only) | `data/wrong_label/278.png` | 1 | 256×256 RGBA, uint8 |
 
 ### Splits
 
 | Split | Image IDs | Count | Purpose |
 |---|---|---|---|
-| **Train** | All IDs with a matching label | 25 | Model training (and optional internal validation) |
+| **Train** | All IDs in `data/images/` with a matching label in `data/labels/` | 24 | Model training (and optional internal validation) |
 | **Test** | `535`, `537`, `539`, `551`, `553` | 5 | Final inference only — no labels available |
+| **Excluded** | `278` | 1 | Wrong label for its image (byte-identical to `270`'s) — kept in `data/wrong_label/`, not used for train or test |
 
 ### Label semantics
 
@@ -56,7 +58,7 @@ Alternative (`label >= 128`) may be used if documented; both should be evaluated
 
 ### Known data quirks (to be verified in §3.2)
 
-- Images `270` and `278` may share an identical label but different input images.
+- Images `270` and `278` shared an identical label but different input images — confirmed wrong; `278` has been excluded from the dataset (image moved to `data/wrong_label/`, label deleted). See [DATA_REPORT.md §3](DATA_REPORT.md#3-duplicate--inconsistent-labels).
 - Test image `535` (and possibly others) may contain non-opaque alpha values (masked/censored regions). Preprocessing must define how alpha is handled.
 
 ---
@@ -95,7 +97,7 @@ Alternative (`label >= 128`) may be used if documented; both should be evaluated
 
 | Area | What to verify |
 |---|---|
-| **File inventory** | 30 images, 25 labels; list train vs test IDs; no orphan labels without images |
+| **File inventory** | 30 images, 25 labels originally (29 images / 24 labels after excluding `278`); list train vs test IDs; no orphan labels without images |
 | **Dimensions** | All images and labels are 256×256; no shape mismatches within pairs |
 | **Image–label alignment** | Overlay each pair visually; confirm masks line up with roof structures |
 | **Duplicate / inconsistent labels** | Hash or compare label arrays — flag pairs like `270`/`278` where different images share the same mask, or where masks look wrong for the scene |
@@ -106,7 +108,7 @@ Alternative (`label >= 128`) may be used if documented; both should be evaluated
 
 **Done when:**
 
-- [x] File inventory is complete and matches §2 (25 train pairs, 5 test-only images, no surprises).
+- [x] File inventory is complete and matches §2 (24 train pairs after excluding `278`, 5 test-only images, no surprises).
 - [x] All image–label pairs have matching spatial dimensions.
 - [x] At least one grid visualization exists: image \| label \| overlay for a representative sample of train pairs (≥5).
 - [x] Duplicate or mismatched label cases are explicitly listed (e.g. `270`/`278`) with a stated impact on training (keep both, drop one, etc.).
@@ -134,7 +136,7 @@ Alternative (`label >= 128`) may be used if documented; both should be evaluated
 
 **Done when:**
 
-- [ ] All 25 train pairs load without error and produce aligned `(image, mask)` tensors of shape `(3, 256, 256)` and `(1, 256, 256)` (or equivalent).
+- [ ] All 24 train pairs load without error and produce aligned `(image, mask)` tensors of shape `(3, 256, 256)` and `(1, 256, 256)` (or equivalent).
 - [ ] Test loader returns 5 images with the same spatial preprocessing as training (no label required).
 - [ ] Alpha-channel handling matches the §3.2 decision and is documented in code.
 - [ ] Label binarization matches the §3.2 decision.
@@ -180,18 +182,18 @@ Alternative (`label >= 128`) may be used if documented; both should be evaluated
 
 ### 3.6 Training loop
 
-**Objective:** Train the model on the 25 labeled pairs and persist a usable checkpoint.
+**Objective:** Train the model on the 24 labeled pairs and persist a usable checkpoint.
 
 **Requirements:**
 
 - Loss function suited to imbalanced segmentation (e.g. **BCE + Dice**, or Dice alone).
 - Optimizer and learning rate documented.
 - Training length defined (epochs and/or early stopping).
-- Optional but recommended: hold out a small validation subset from the 25 (e.g. 4–5 images) for monitoring — **not** the 5 official test images.
+- Optional but recommended: hold out a small validation subset from the 24 (e.g. 4–5 images) for monitoring — **not** the 5 official test images.
 
 **Done when:**
 
-- [ ] Training runs to completion without errors on all 25 train pairs.
+- [ ] Training runs to completion without errors on all 24 train pairs.
 - [ ] A model checkpoint is saved to disk.
 - [ ] Training loss (and validation metric, if used) is logged or plotted.
 - [ ] No test-set images (`535`, `537`, `539`, `551`, `553`) appear in training or validation splits.
@@ -210,7 +212,7 @@ Alternative (`label >= 128`) may be used if documented; both should be evaluated
 
 **Done when:**
 
-- [ ] At least one metric is computed on an internal validation subset or via cross-validation on the 25 labels.
+- [ ] At least one metric is computed on an internal validation subset or via cross-validation on the 24 labels.
 - [ ] Metric value(s) and evaluation protocol are recorded in the write-up.
 - [ ] At least one side-by-side visualization exists: input | ground truth | prediction (on a validation sample).
 
@@ -270,7 +272,7 @@ Before submission, confirm:
 | # | Check | Pass |
 |---|---|---|
 | 1 | Data inspection completed; findings documented (alpha, label quirks, binarization rule) | ☑ |
-| 2 | 25 train pairs used; 5 test images never seen during training | ☐ |
+| 2 | 24 train pairs used (278 excluded); 5 test images never seen during training | ☐ |
 | 3 | Pretrained segmentation model with documented architecture | ☐ |
 | 4 | Data augmentation applied during training | ☐ |
 | 5 | Labels binarized consistently (per inspection decision) | ☐ |
@@ -306,7 +308,7 @@ Record the chosen option in the write-up when decided:
 |---|---|---|---|
 | Label threshold | `> 0` vs `>= 128` | **Decided: `> 0`** — see [DATA_REPORT.md §5](DATA_REPORT.md#5-label-value-distribution--binarization-rule) | §3.2 |
 | Alpha handling | Drop vs ignore-mask vs composite | **Decided: drop alpha, RGB only** — see [DATA_REPORT.md §4](DATA_REPORT.md#4-alpha-channel-audit) | §3.2 |
-| Mismatched pairs | Keep / drop / relabel | **Decided: keep both `270`/`278`** — see [DATA_REPORT.md §3](DATA_REPORT.md#3-duplicate--inconsistent-labels) | §3.2 |
+| Mismatched pairs | Keep / drop / relabel | **Decided: drop `278`** (moved to `data/wrong_label/`, label deleted) — see [DATA_REPORT.md §3](DATA_REPORT.md#3-duplicate--inconsistent-labels) | §3.2 |
 | Validation split | 5-fold CV vs fixed 20/5 hold-out | Fixed hold-out for speed | §3.6 |
 | Model | U-Net vs DeepLabV3+ | U-Net + ResNet34 via `smp` | §3.5 |
 | Loss | BCE, Dice, BCE+Dice | BCE + Dice | §3.6 |

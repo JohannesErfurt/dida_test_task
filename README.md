@@ -14,7 +14,7 @@ Take-home task: train a neural network to predict pixel-wise roof masks from aer
 Build a **binary semantic segmentation** pipeline that:
 
 1. Inspects and documents the dataset
-2. Trains on **25 labeled** image–mask pairs
+2. Trains on labeled image–mask pairs
 3. Predicts roof masks for **5 test images** (no labels provided)
 4. Delivers predictions plus a short write-up explaining model choice, preprocessing, and limitations
 
@@ -22,10 +22,13 @@ Build a **binary semantic segmentation** pipeline that:
 
 | Asset | Path | Count | Format |
 |---|---|---|---|
-| Satellite images | `images/{id}.png` | 30 | 256×256 RGBA |
-| Roof labels | `labels/{id}.png` | 25 | 256×256 grayscale |
+| Satellite images | `data/images/{id}.png` | 29 | 256×256 RGBA |
+| Roof labels | `data/labels/{id}.png` | 24 | 256×256 grayscale |
+| Excluded pair (reference only) | `data/wrong_label/278.png` | 1 | 256×256 RGBA |
 
-**Train set:** all 25 images that have a matching label.
+Of the original 30 images / 25 labels, image/label pair **`278` was excluded**: its label was byte-identical to `270`'s (wrong for its own image), so it was pulled out rather than trained on. See [`DATA_REPORT.md` §3](DATA_REPORT.md#3-duplicate--inconsistent-labels) for details. `278.png` (the image only) is kept in `data/wrong_label/` for reference; it is not read by any training or inference code.
+
+**Train set:** the 24 images in `data/images/` that have a matching label in `data/labels/`.
 
 **Test set (inference only):** `535`, `537`, `539`, `551`, `553`.
 
@@ -49,8 +52,10 @@ Project setup
 
 ```
 dida_test_task/
-├── images/                  # 30 satellite tiles
-├── labels/                  # 25 roof masks
+├── data/
+│   ├── images/               # 29 satellite tiles (278 excluded, see below)
+│   ├── labels/                # 24 roof masks
+│   └── wrong_label/           # 278.png — excluded image, kept for reference only
 ├── roof_seg/                # Python package (config, seeds, pipeline modules)
 │   ├── config.py            # Paths, test IDs, defaults (seed = 42)
 │   ├── seed.py              # Reproducibility helper

@@ -26,7 +26,14 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from roof_seg.config import IMAGES_DIR, INSPECTION_DIR, LABELS_DIR, RANDOM_SEED, TEST_IDS  # noqa: E402
+from roof_seg.config import (  # noqa: E402
+    IMAGES_DIR,
+    INSPECTION_DIR,
+    LABELS_DIR,
+    RANDOM_SEED,
+    TEST_IDS,
+    WRONG_LABEL_DIR,
+)
 from roof_seg.paths import ensure_output_dirs  # noqa: E402
 from roof_seg.seed import set_seed  # noqa: E402
 
@@ -61,10 +68,14 @@ def load_label(image_id: str) -> np.ndarray:
 def file_inventory() -> tuple[list[str], list[str]]:
     image_ids = sorted(p.stem for p in IMAGES_DIR.glob("*.png"))
     label_ids = sorted(p.stem for p in LABELS_DIR.glob("*.png"))
+    excluded_ids = sorted(p.stem for p in WRONG_LABEL_DIR.glob("*.png"))
+    expected_images = 30 - len(excluded_ids)
+    expected_labels = expected_images - len(TEST_IDS)
 
     print("=== 1. File inventory ===")
-    print(f"Images found: {len(image_ids)} (expected 30)")
-    print(f"Labels found: {len(label_ids)} (expected 25)")
+    print(f"Images found: {len(image_ids)} (expected {expected_images}, after excluding {excluded_ids})")
+    print(f"Labels found: {len(label_ids)} (expected {expected_labels})")
+    print(f"Excluded pairs (data/wrong_label/, not used for training or testing): {excluded_ids}")
 
     orphan_labels = sorted(set(label_ids) - set(image_ids))
     train_only_images = sorted(set(image_ids) - set(label_ids))
@@ -113,6 +124,11 @@ def find_duplicate_labels(label_ids: list[str]) -> dict[str, list[str]]:
             print(f"Identical label pixels shared by images: {ids}")
     else:
         print("No duplicate labels found.")
+    print(
+        "Note: image/label pair 278 was excluded from the dataset (its label was a "
+        f"byte-identical duplicate of 270's); the original image is kept at {WRONG_LABEL_DIR} "
+        "for reference — see DATA_REPORT.md §3."
+    )
     return duplicates
 
 
