@@ -7,6 +7,14 @@ DATA_DIR = PROJECT_ROOT / "data"
 
 IMAGES_DIR = DATA_DIR / "images"
 LABELS_DIR = DATA_DIR / "labels"
+
+# RGB-only copy of the dataset (alpha channel dropped), built by
+# scripts/build_rgb_dataset.py per the DATA_REPORT.md §4 decision. The
+# original RGBA dataset above is left untouched.
+RGB_DATA_DIR = PROJECT_ROOT / "data_rgb"
+RGB_IMAGES_DIR = RGB_DATA_DIR / "images"
+RGB_LABELS_DIR = RGB_DATA_DIR / "labels"
+
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 CHECKPOINTS_DIR = OUTPUTS_DIR / "checkpoints"
 PREDICTIONS_DIR = OUTPUTS_DIR / "predictions"

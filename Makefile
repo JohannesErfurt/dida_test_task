@@ -10,18 +10,19 @@ SEED       ?= 42
 EPOCHS     ?= 50
 CHECKPOINT ?= outputs/checkpoints/best_model.pt
 
-.PHONY: help venv install inspect train predict test clean distclean
+.PHONY: help venv install inspect rgb-dataset train predict test clean distclean
 
 help:
 	@echo "Targets:"
-	@echo "  make venv        create virtualenv at $(VENV_DIR)"
-	@echo "  make install     install dependencies + roof_seg package into $(VENV_DIR)"
-	@echo "  make inspect     run dataset inspection (SPEC 3.2)"
-	@echo "  make train       run training (SPEC 3.6); EPOCHS=$(EPOCHS) SEED=$(SEED)"
-	@echo "  make predict     run inference on test images (SPEC 3.8); CHECKPOINT=$(CHECKPOINT)"
-	@echo "  make test        run the test suite with pytest"
-	@echo "  make clean       remove generated outputs (checkpoints, predictions, inspection)"
-	@echo "  make distclean   clean + remove the virtualenv"
+	@echo "  make venv         create virtualenv at $(VENV_DIR)"
+	@echo "  make install      install dependencies + roof_seg package into $(VENV_DIR)"
+	@echo "  make inspect      run dataset inspection (SPEC 3.2)"
+	@echo "  make rgb-dataset  build the RGB-only (alpha-dropped) dataset copy at data_rgb/"
+	@echo "  make train        run training (SPEC 3.6); EPOCHS=$(EPOCHS) SEED=$(SEED)"
+	@echo "  make predict      run inference on test images (SPEC 3.8); CHECKPOINT=$(CHECKPOINT)"
+	@echo "  make test         run the test suite with pytest"
+	@echo "  make clean        remove generated outputs (checkpoints, predictions, inspection)"
+	@echo "  make distclean    clean + remove the virtualenv"
 
 $(PYTHON):
 	py -3.11 -m venv $(VENV_DIR)
@@ -35,6 +36,9 @@ install: venv
 
 inspect: venv
 	$(PYTHON) scripts/inspect_data.py --seed $(SEED)
+
+rgb-dataset: venv
+	$(PYTHON) scripts/build_rgb_dataset.py
 
 train: venv
 	$(PYTHON) scripts/train.py --seed $(SEED) --epochs $(EPOCHS)

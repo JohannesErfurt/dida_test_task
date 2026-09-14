@@ -28,6 +28,8 @@ Critically, these masked regions almost never coincide with roof labels: across 
 
 **Decision:** drop the alpha channel and train on RGB only. The masked regions are already near-black in RGB, so the model sees them as "dark unremarkable area" whether or not alpha is used — no separate handling (e.g. an ignore-mask) is needed given the negligible roof overlap.
 
+This decision is materialized as an actual dataset, not just a load-time transform: `scripts/build_rgb_dataset.py` (`make rgb-dataset`) writes an RGB-only copy of every image to `data_rgb/images/` (labels are copied through unchanged to `data_rgb/labels/`, since grayscale masks have no alpha channel to begin with). The original RGBA dataset in `data/` is left untouched.
+
 ## 5. Label value distribution & binarization rule
 
 Aggregated over the 24 active labels: 1,321,236 background px (`0`), 187,452 roof-interior px (`255`), 64,176 boundary px (`1`–`254`, **4.08%** of all pixels). The histogram (`outputs/inspection/label_value_histogram.png`) is strongly bimodal at 0 and 255, with a thin, roughly uniform spread of boundary values in between (antialiasing on polygon edges) — no secondary cluster that would suggest a different label convention.
@@ -61,7 +63,7 @@ All 6 test images (`278`, `535`, `537`, `539`, `551`, `553`) are 256×256 RGBA, 
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Model input channels | RGB (drop alpha) | Alpha only flags already-black censorship boxes; negligible overlap with roof pixels |
+| Model input channels | RGB (drop alpha); materialized at `data_rgb/` via `scripts/build_rgb_dataset.py` | Alpha only flags already-black censorship boxes; negligible overlap with roof pixels |
 | Label binarization | `mask = (label > 0)` | SPEC default; preserves full roof footprint; boundary is only 4.08% of pixels |
 | Wrong label (`278`) | **Label deleted, image moved to `TEST_IDS`** | `278`'s label was `270`'s (copy/paste error); training on it would teach a wrong mapping. Kept the image so it still gets a prediction |
 | Loss function | BCE + Dice | Roof coverage 6–31% of frame — background-dominated, imbalance-sensitive |

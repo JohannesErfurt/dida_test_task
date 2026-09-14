@@ -24,8 +24,12 @@ Build a **binary semantic segmentation** pipeline that:
 |---|---|---|---|
 | Satellite images | `data/images/{id}.png` | 30 | 256×256 RGBA |
 | Roof labels | `data/labels/{id}.png` | 24 | 256×256 grayscale |
+| Satellite images, RGB-only | `data_rgb/images/{id}.png` | 30 | 256×256 RGB |
+| Roof labels (copy) | `data_rgb/labels/{id}.png` | 24 | 256×256 grayscale |
 
 Of the original 30 images / 25 labels, **`278`'s label was wrong**: on inspection it is clearly not `278`'s roof mask at all, but a byte-identical copy of `270`'s label — almost certainly a copy/paste annotation error. Training on it would teach the model an incorrect image→mask mapping and hurt prediction quality, so `data/labels/278.png` has been **deleted**. `278`'s image was kept and moved into the test set instead (`TEST_IDS` in `roof_seg/config.py`), so it still gets a prediction once the model is trained — it just never contributes a (wrong) training signal. See [`DATA_REPORT.md` §3](DATA_REPORT.md#3-duplicate--inconsistent-labels--278s-label-is-wrong) for the full writeup.
+
+`data_rgb/` is a generated copy of the dataset with the alpha channel dropped (per the [DATA_REPORT.md §4](DATA_REPORT.md#4-alpha-channel-audit) decision), built by `scripts/build_rgb_dataset.py` (`make rgb-dataset`). The original RGBA dataset in `data/` is left untouched; `data_rgb/` is provided as an inspectable, materialized preprocessing artifact.
 
 **Train set:** the 24 images in `data/images/` that have a matching label in `data/labels/`.
 
@@ -52,14 +56,18 @@ Project setup
 ```
 dida_test_task/
 ├── data/
-│   ├── images/               # 30 satellite tiles
+│   ├── images/               # 30 satellite tiles (RGBA, original)
 │   └── labels/                # 24 roof masks (278's wrong label deleted; 278 moved to TEST_IDS)
+├── data_rgb/                 # Generated: data/ with alpha dropped (see scripts/build_rgb_dataset.py)
+│   ├── images/                # 30 satellite tiles (RGB)
+│   └── labels/                # 24 roof masks (unchanged copy)
 ├── roof_seg/                # Python package (config, seeds, pipeline modules)
 │   ├── config.py            # Paths, test IDs, defaults (seed = 42)
 │   ├── seed.py              # Reproducibility helper
 │   └── paths.py             # Output directory setup
 ├── scripts/
 │   ├── inspect_data.py      # Data quality analysis (§3.2)
+│   ├── build_rgb_dataset.py # Materialize the RGB-only dataset copy
 │   ├── train.py             # Model training (§3.6)
 │   └── predict.py           # Test-set inference (§3.8)
 ├── notebooks/               # Exploratory notebooks
@@ -107,13 +115,14 @@ python scripts/predict.py --checkpoint outputs/checkpoints/best_model.pt
 Equivalent targets are available via `make` (Git Bash / WSL / any shell with `make`):
 
 ```bash
-make install   # create .venv and install dependencies + roof_seg package
-make inspect   # run dataset inspection
-make train     # run training (EPOCHS=50 SEED=42 by default, e.g. make train EPOCHS=10)
-make predict   # run inference on the 5 test images
-make test      # run the test suite with pytest
-make clean     # remove generated outputs (checkpoints, predictions, inspection)
-make distclean # clean + remove the virtualenv
+make install     # create .venv and install dependencies + roof_seg package
+make inspect     # run dataset inspection
+make rgb-dataset # build the RGB-only (alpha-dropped) dataset copy at data_rgb/
+make train       # run training (EPOCHS=50 SEED=42 by default, e.g. make train EPOCHS=10)
+make predict     # run inference on the 6 test images
+make test        # run the test suite with pytest
+make clean       # remove generated outputs (checkpoints, predictions, inspection)
+make distclean   # clean + remove the virtualenv
 ```
 
 Expected test outputs:

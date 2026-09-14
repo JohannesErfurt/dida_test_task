@@ -5,12 +5,15 @@ from __future__ import annotations
 import random
 
 import numpy as np
+import pytest
 
 from roof_seg.config import (
     IMAGES_DIR,
     IMAGE_SIZE,
     LABELS_DIR,
     RANDOM_SEED,
+    RGB_IMAGES_DIR,
+    RGB_LABELS_DIR,
     TEST_IDS,
 )
 from roof_seg.paths import ensure_output_dirs, CHECKPOINTS_DIR, INSPECTION_DIR, PREDICTIONS_DIR
@@ -63,6 +66,26 @@ def test_ensure_output_dirs_creates_directories(tmp_path, monkeypatch):
     assert fake_checkpoints.is_dir()
     assert fake_predictions.is_dir()
     assert fake_inspection.is_dir()
+
+
+def test_rgb_dataset_matches_original_minus_alpha():
+    """data_rgb/ (built by scripts/build_rgb_dataset.py) mirrors data/ with alpha dropped."""
+    from PIL import Image
+
+    if not RGB_IMAGES_DIR.is_dir():
+        pytest.skip("data_rgb/ not built yet — run scripts/build_rgb_dataset.py")
+
+    rgb_images = sorted(p.stem for p in RGB_IMAGES_DIR.glob("*.png"))
+    rgb_labels = sorted(p.stem for p in RGB_LABELS_DIR.glob("*.png"))
+    orig_images = sorted(p.stem for p in IMAGES_DIR.glob("*.png"))
+    orig_labels = sorted(p.stem for p in LABELS_DIR.glob("*.png"))
+    assert rgb_images == orig_images
+    assert rgb_labels == orig_labels
+
+    with Image.open(IMAGES_DIR / "121.png") as orig, Image.open(RGB_IMAGES_DIR / "121.png") as rgb:
+        assert orig.mode == "RGBA"
+        assert rgb.mode == "RGB"
+        assert np.array_equal(np.array(orig)[..., :3], np.array(rgb))
 
 
 def test_set_seed_is_reproducible():
