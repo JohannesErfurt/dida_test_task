@@ -79,9 +79,11 @@ class RoofTrainDataset(Dataset):
 
     `transform` is an optional Albumentations-style callable applied to the
     raw numpy arrays via `transform(image=image, mask=mask)`, run *before*
-    normalization/tensor conversion. Left unset (no augmentation) here --
-    wiring in an actual augmentation pipeline is SPEC §3.5, a separate
-    subtask.
+    normalization/tensor conversion. Pass `roof_seg.augmentation.build_train_transform()`
+    for the SPEC §3.5 augmentation pipeline (flips, 90-degree rotation, color
+    jitter) -- left as `None` by default so this class is equally usable
+    without augmentation (e.g. for a CV validation fold, which must never be
+    augmented).
     """
 
     def __init__(self, ids: Optional[list[str]] = None, transform: Optional[Callable] = None):

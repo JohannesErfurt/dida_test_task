@@ -181,10 +181,10 @@ mask = 255 * (label > 128).astype(np.uint8)
 
 **Done when:**
 
-- [ ] Augmentations apply to **both** image and mask jointly (mask geometry preserved).
-- [ ] Augmentations are active during training only, not during validation/inference.
-- [ ] Augmentation pipeline is implemented (e.g. Albumentations) and listed in the write-up.
-- [ ] Whether augmentation actually helps is checked with the §3.4 CV harness (paired on/off comparison), not assumed.
+- [x] Augmentations apply to **both** image and mask jointly (mask geometry preserved). Restricted to flips and 90° rotation specifically (not arbitrary-angle) so no interpolation ever touches the mask — see `roof_seg/augmentation.py` docstring.
+- [x] Augmentations are active during training only, not during validation/inference. `RoofTestDataset` has no `transform` parameter at all (structural, not just "unset by convention") — see `scripts/check_augmentation.py`.
+- [x] Augmentation pipeline is implemented (Albumentations) and listed in the write-up — see README.md's "Data augmentation" section.
+- [ ] Whether augmentation actually helps is checked with the §3.4 CV harness (paired on/off comparison), not assumed. **Deferred**: this requires a trainable model, which doesn't exist until §3.6/§3.7. Will run once those land.
 
 ---
 

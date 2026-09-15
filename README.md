@@ -67,6 +67,18 @@ Results (`make run-cv`, 6-fold, seed 42): spatial-prior baseline scores mean IoU
 
 **Limitations of CV at N=24** (documented per SPEC §3.4, to be folded into the final write-up at §3.10): even with all 24 images used, per-fold metrics are noisy (LOOCV fold std ≈ 0.08 IoU vs 6-fold ≈ 0.02 — a single validation image is a high-variance estimate); folds share most of their training data with each other, so they aren't independent samples in the formal statistical sense; and reusing the same 24 images to both *select* a configuration and *report* its performance risks mild optimism bias (a full nested-CV would avoid this but isn't implemented here — see SPEC §3.4/§6 "Validation strategy" for the reasoning). Treat differences smaller than roughly 5–10 percentage points of Dice/IoU as noise, not a real effect.
 
+## Data augmentation (`roof_seg/augmentation.py`)
+
+Implements SPEC §3.5: `build_train_transform()` returns an Albumentations pipeline — horizontal flip, vertical flip, 90° rotation, and color jitter (brightness/contrast/saturation, small hue) — passed to `RoofTrainDataset(transform=...)`.
+
+**Why only 90° rotation, not arbitrary-angle:** flips and 90° rotation are exact pixel permutations — every output pixel is copied unchanged from some input pixel, so the mask needs zero interpolation and stays exactly `{0, 255}`. `data/data_convert/labels_bin_128/` was binarized specifically to eliminate the antialiased boundary values in the original labels (DATA_REPORT.md §5); arbitrary-angle rotation (or any resize/crop) would interpolate the mask and silently reintroduce that same soft, non-binary boundary — undoing that decision. This isn't a convenience default, it's the reason 90°-only was chosen.
+
+**Train-only, structurally, not by convention:** `RoofTestDataset` has no `transform` parameter at all (verified by `scripts/check_augmentation.py` via `inspect.signature`) — there's no way to accidentally augment a test or validation-fold image, since the class doesn't expose the hook to do so.
+
+Run `python scripts/check_augmentation.py` (or `make check-augmentation`) to verify: masks stay strictly binary after augmentation (24 images × 3 draws each), `RoofTestDataset` has no augmentation hook, and to render `outputs/inspection/augmentation_grid.png` (original | 5 augmented views, mask overlaid) confirming mask geometry tracks the image through every transform.
+
+**Not yet done:** whether augmentation actually improves segmentation quality needs to be checked with the §3.4 CV harness (paired on/off comparison) — but that requires a trainable model, which doesn't exist until §3.6/§3.7. The placeholder baselines in `scripts/run_cv.py` don't use `RoofTrainDataset` at all, so they can't answer this; it's deferred, not assumed.
+
 ## Workflow
 
 ```
@@ -99,20 +111,23 @@ dida_test_task/
 │   ├── paths.py             # Output directory setup
 │   ├── dataset.py           # RoofTrainDataset / RoofTestDataset, preprocessing (§3.3)
 │   ├── metrics.py           # IoU / Dice
-│   └── cross_validation.py  # Fold splitter, CV runner, paired comparison (§3.4)
+│   ├── cross_validation.py  # Fold splitter, CV runner, paired comparison (§3.4)
+│   └── augmentation.py      # build_train_transform: flips, 90° rotation, color jitter (§3.5)
 ├── scripts/
-│   ├── inspect_data.py       # Data quality analysis on data_org/ (§3.2)
-│   ├── build_data_convert.py # Build data_convert/ from data_org/ + comparison figure
-│   ├── check_dataset.py      # Sanity-check the dataset loader (§3.3) + overlay figure
-│   ├── run_cv.py              # Exercise the CV harness with placeholder baselines (§3.4)
-│   ├── train.py               # Model training (§3.7)
-│   └── predict.py             # Test-set inference (§3.9)
+│   ├── inspect_data.py         # Data quality analysis on data_org/ (§3.2)
+│   ├── build_data_convert.py   # Build data_convert/ from data_org/ + comparison figure
+│   ├── check_dataset.py        # Sanity-check the dataset loader (§3.3) + overlay figure
+│   ├── run_cv.py                # Exercise the CV harness with placeholder baselines (§3.4)
+│   ├── check_augmentation.py   # Sanity-check the augmentation pipeline (§3.5) + grid figure
+│   ├── train.py                 # Model training (§3.7)
+│   └── predict.py               # Test-set inference (§3.9)
 ├── tests/
 │   ├── test_smoke.py           # Project setup + dataset-file smoke tests
 │   ├── test_dataset.py         # roof_seg.dataset unit tests (§3.3)
 │   ├── test_metrics.py         # roof_seg.metrics unit tests
 │   ├── test_cross_validation.py # roof_seg.cross_validation unit tests (§3.4)
-│   └── test_run_cv.py          # scripts/run_cv.py baseline integration tests
+│   ├── test_run_cv.py          # scripts/run_cv.py baseline integration tests
+│   └── test_augmentation.py    # roof_seg.augmentation unit tests (§3.5)
 ├── notebooks/               # Exploratory notebooks
 ├── outputs/
 │   ├── checkpoints/         # Saved model weights
@@ -169,6 +184,7 @@ make inspect       # run dataset inspection on data/data_org/
 make data-convert  # (re)build data/data_convert/ (RGB images + label>128 labels) from data/data_org/
 make check-dataset # sanity-check the dataset loader (§3.3) + overlay figure
 make run-cv        # run the CV harness (§3.4); add COMPARE=1 for a paired comparison
+make check-augmentation # sanity-check the augmentation pipeline (§3.5) + grid figure
 make train         # run training (EPOCHS=50 SEED=42 by default, e.g. make train EPOCHS=10)
 make predict       # run inference on the 6 test images
 make test          # run the test suite with pytest
@@ -217,7 +233,7 @@ See the [acceptance checklist in SPEC.md](SPEC.md#4-acceptance-checklist-final-r
 | 3.2 Data inspection | Done |
 | 3.3 Data loading | Done |
 | 3.4 Cross-validation harness | Done |
-| 3.5 Augmentation | Not started |
+| 3.5 Augmentation | Done |
 | 3.6 Model | Not started |
 | 3.7 Training | Not started |
 | 3.8 Internal evaluation | Not started |
