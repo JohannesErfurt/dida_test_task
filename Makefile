@@ -10,7 +10,7 @@ SEED       ?= 42
 EPOCHS     ?= 50
 CHECKPOINT ?= outputs/checkpoints/best_model.pt
 
-.PHONY: help venv install inspect data-convert check-dataset train predict test clean distclean
+.PHONY: help venv install inspect data-convert check-dataset run-cv train predict test clean distclean
 
 help:
 	@echo "Targets:"
@@ -19,8 +19,9 @@ help:
 	@echo "  make inspect        run dataset inspection on data/data_org/ (SPEC 3.2)"
 	@echo "  make data-convert   (re)build data/data_convert/ (RGB images + label>128 labels) from data/data_org/"
 	@echo "  make check-dataset  sanity-check the dataset loader (SPEC 3.3) + overlay figure"
-	@echo "  make train          run training (SPEC 3.6); EPOCHS=$(EPOCHS) SEED=$(SEED)"
-	@echo "  make predict        run inference on test images (SPEC 3.8); CHECKPOINT=$(CHECKPOINT)"
+	@echo "  make run-cv         run the CV harness (SPEC 3.4) with placeholder baselines; add COMPARE=1 for a paired comparison"
+	@echo "  make train          run training (SPEC 3.7); EPOCHS=$(EPOCHS) SEED=$(SEED)"
+	@echo "  make predict        run inference on test images (SPEC 3.9); CHECKPOINT=$(CHECKPOINT)"
 	@echo "  make test           run the test suite with pytest"
 	@echo "  make clean          remove generated outputs (checkpoints, predictions, inspection)"
 	@echo "  make distclean      clean + remove the virtualenv"
@@ -43,6 +44,13 @@ data-convert: venv
 
 check-dataset: venv
 	$(PYTHON) scripts/check_dataset.py --seed $(SEED)
+
+run-cv: venv
+ifdef COMPARE
+	$(PYTHON) scripts/run_cv.py --seed $(SEED) --compare
+else
+	$(PYTHON) scripts/run_cv.py --seed $(SEED)
+endif
 
 train: venv
 	$(PYTHON) scripts/train.py --seed $(SEED) --epochs $(EPOCHS)

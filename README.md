@@ -53,6 +53,20 @@ Of the original 30 images / 25 labels, **`278`'s label was wrong**: on inspectio
 
 Run `python scripts/check_dataset.py` (or `make check-dataset`) to sanity-check the loader: verifies dataset lengths (24/6), tensor shapes, strictly-binary masks, and renders `outputs/inspection/dataset_sanity_check.png` (de-normalized image | mask | overlay) to confirm alignment survives the full tensor pipeline.
 
+## Cross-validation harness (`roof_seg/cross_validation.py`)
+
+Implements SPEC §3.4. **Why it exists:** with only 24 labeled images, a single fixed train/val split (e.g. 19/5) is too high-variance to trust — which handful of images land in validation can swing IoU/Dice by more than the effect of whatever is actually being compared (augmentation on/off, loss choice, etc.). Cross-validation averages over all 24 images instead, and — used as a **paired comparison** (identical folds and seed, only one setting changed) — isolates a real effect from fold-composition noise far better than eyeballing two independent numbers.
+
+- **`make_folds(ids, n_folds, seed)`** — deterministic k-fold split; every ID validates exactly once. `n_folds == 24` gives leave-one-out CV (affordable here given how small/fast each fold's training is). Raises if any `TEST_IDS` leak in.
+- **`cross_validate(train_fn, n_folds, seed)`** — runs `train_fn(train_ids, val_ids) -> {metric: value}` once per fold and returns a `CVResult` with `.mean(metric)` / `.std(metric)` / `.summary()`. `train_fn` is fully decoupled from any specific model — once §3.6/§3.7's real segmentation model exists, its train/eval logic plugs in here unchanged.
+- **`paired_compare(train_fn_a, train_fn_b, ...)`** — runs two configs on identical folds/seed for a sensitive, noise-isolated comparison.
+
+**Demo (`scripts/run_cv.py` / `make run-cv`):** no real model exists yet (§3.6/§3.7), so this exercises the harness end-to-end with two trivial, no-learning baselines instead — `spatial-prior` (predicts the pixels most often marked as roof across the training fold) and `centered-square` (a fixed centered block, same area fraction). Neither is a meaningful "how good is roof segmentation" number; they exist only to prove the harness works before the real model is built.
+
+Results (`make run-cv`, 6-fold, seed 42): spatial-prior baseline scores mean IoU 0.187 ± 0.020, Dice 0.309 ± 0.031. Paired comparison (`make run-cv COMPARE=1`) against the centered-square baseline on the *same* folds: mean IoU difference +0.005 (per-fold range −0.060 to +0.057), Dice difference +0.013 — i.e. **no detectable difference** between the two placeholders, which is the expected/correct outcome (they're both naive area-matched guesses) and demonstrates the harness's paired comparison is sensitive to real per-fold variation without over-claiming a winner from noise.
+
+**Limitations of CV at N=24** (documented per SPEC §3.4, to be folded into the final write-up at §3.10): even with all 24 images used, per-fold metrics are noisy (LOOCV fold std ≈ 0.08 IoU vs 6-fold ≈ 0.02 — a single validation image is a high-variance estimate); folds share most of their training data with each other, so they aren't independent samples in the formal statistical sense; and reusing the same 24 images to both *select* a configuration and *report* its performance risks mild optimism bias (a full nested-CV would avoid this but isn't implemented here — see SPEC §3.4/§6 "Validation strategy" for the reasoning). Treat differences smaller than roughly 5–10 percentage points of Dice/IoU as noise, not a real effect.
+
 ## Workflow
 
 ```
@@ -83,16 +97,22 @@ dida_test_task/
 │   ├── config.py            # Paths, test IDs, normalization stats, defaults (seed = 42)
 │   ├── seed.py              # Reproducibility helper
 │   ├── paths.py             # Output directory setup
-│   └── dataset.py           # RoofTrainDataset / RoofTestDataset, preprocessing (§3.3)
+│   ├── dataset.py           # RoofTrainDataset / RoofTestDataset, preprocessing (§3.3)
+│   ├── metrics.py           # IoU / Dice
+│   └── cross_validation.py  # Fold splitter, CV runner, paired comparison (§3.4)
 ├── scripts/
 │   ├── inspect_data.py       # Data quality analysis on data_org/ (§3.2)
 │   ├── build_data_convert.py # Build data_convert/ from data_org/ + comparison figure
 │   ├── check_dataset.py      # Sanity-check the dataset loader (§3.3) + overlay figure
+│   ├── run_cv.py              # Exercise the CV harness with placeholder baselines (§3.4)
 │   ├── train.py               # Model training (§3.7)
 │   └── predict.py             # Test-set inference (§3.9)
 ├── tests/
-│   ├── test_smoke.py        # Project setup + dataset-file smoke tests
-│   └── test_dataset.py      # roof_seg.dataset unit tests (§3.3)
+│   ├── test_smoke.py           # Project setup + dataset-file smoke tests
+│   ├── test_dataset.py         # roof_seg.dataset unit tests (§3.3)
+│   ├── test_metrics.py         # roof_seg.metrics unit tests
+│   ├── test_cross_validation.py # roof_seg.cross_validation unit tests (§3.4)
+│   └── test_run_cv.py          # scripts/run_cv.py baseline integration tests
 ├── notebooks/               # Exploratory notebooks
 ├── outputs/
 │   ├── checkpoints/         # Saved model weights
@@ -148,6 +168,7 @@ make install       # create .venv and install dependencies + roof_seg package
 make inspect       # run dataset inspection on data/data_org/
 make data-convert  # (re)build data/data_convert/ (RGB images + label>128 labels) from data/data_org/
 make check-dataset # sanity-check the dataset loader (§3.3) + overlay figure
+make run-cv        # run the CV harness (§3.4); add COMPARE=1 for a paired comparison
 make train         # run training (EPOCHS=50 SEED=42 by default, e.g. make train EPOCHS=10)
 make predict       # run inference on the 6 test images
 make test          # run the test suite with pytest
@@ -195,7 +216,7 @@ See the [acceptance checklist in SPEC.md](SPEC.md#4-acceptance-checklist-final-r
 | 3.1 Project setup | Done |
 | 3.2 Data inspection | Done |
 | 3.3 Data loading | Done |
-| 3.4 Cross-validation harness | Not started |
+| 3.4 Cross-validation harness | Done |
 | 3.5 Augmentation | Not started |
 | 3.6 Model | Not started |
 | 3.7 Training | Not started |

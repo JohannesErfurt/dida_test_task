@@ -162,10 +162,10 @@ mask = 255 * (label > 128).astype(np.uint8)
 
 **Done when:**
 
-- [ ] Fold-splitting utility exists, is deterministic (same seed → same folds), and asserts no overlap with `TEST_IDS`.
-- [ ] CV runner trains and evaluates across all folds for a given config and reports mean ± std IoU/Dice (not just a single aggregate number with no spread).
-- [ ] At least one paired comparison (e.g. augmentation on vs off, §3.5) is run using identical folds/seed, with results recorded in the write-up.
-- [ ] CV is documented as the internal evaluation protocol referenced in §3.8, including its limitations for a dataset this small (high variance, non-independent folds, risk of overfitting hyperparameters to only 24 images) — see write-up §3.10.
+- [x] Fold-splitting utility exists, is deterministic (same seed → same folds), and asserts no overlap with `TEST_IDS`.
+- [x] CV runner trains and evaluates across all folds for a given config and reports mean ± std IoU/Dice (not just a single aggregate number with no spread).
+- [x] At least one paired comparison (e.g. augmentation on vs off, §3.5) is run using identical folds/seed, with results recorded in the write-up. (Real augmentation doesn't exist yet, so this used two placeholder baselines instead — see README.md's "Cross-validation harness" section.)
+- [x] CV is documented as the internal evaluation protocol referenced in §3.8, including its limitations for a dataset this small (high variance, non-independent folds, risk of overfitting hyperparameters to only 24 images) — see README.md; will be folded into the final write-up at §3.10.
 
 ---
 
