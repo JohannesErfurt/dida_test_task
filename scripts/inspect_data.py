@@ -26,13 +26,17 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# Data inspection always operates on the original, unmodified data (RGBA images, raw
+# antialiased labels) -- not on data_convert/, which is what the training pipeline reads.
+# Aliased to IMAGES_DIR/LABELS_DIR here purely so the rest of this file's logic (alpha
+# channel access, RGBA mode checks, raw-value histograms) reads naturally.
 from roof_seg.config import (  # noqa: E402
-    IMAGES_DIR,
     INSPECTION_DIR,
-    LABELS_DIR,
     RANDOM_SEED,
     TEST_IDS,
 )
+from roof_seg.config import ORG_IMAGES_DIR as IMAGES_DIR  # noqa: E402
+from roof_seg.config import ORG_LABELS_DIR as LABELS_DIR  # noqa: E402
 from roof_seg.paths import ensure_output_dirs  # noqa: E402
 from roof_seg.seed import set_seed  # noqa: E402
 
@@ -124,7 +128,8 @@ def find_duplicate_labels(label_ids: list[str]) -> dict[str, list[str]]:
         "Note: 278's original label was a byte-identical duplicate of 270's and clearly did "
         "not correspond to image 278 (almost certainly a copy/paste annotation error). Rather "
         "than train on a wrong label, it was deleted and 278 was moved into TEST_IDS instead — "
-        "see DATA_REPORT.md §3."
+        "see DATA_REPORT.md §3. (278 has no file in labels_org/ at all, so it never reaches "
+        "this duplicate check to begin with.)"
     )
     return duplicates
 
@@ -292,7 +297,9 @@ def main() -> int:
     test_set_inspection(image_ids, opacity)
 
     print(f"\nInspection outputs written to: {INSPECTION_DIR}")
-    print("See DATA_REPORT.md for the findings summary and preprocessing decisions.")
+    print("Decision (revised, see DATA_REPORT.md §5): binarize with `label > 128`, not `label > 0`.")
+    print("Materialized at data/data_convert/ via scripts/build_data_convert.py (`make data-convert`).")
+    print("See DATA_REPORT.md for the full findings summary and preprocessing decisions.")
     return 0
 
 

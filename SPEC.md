@@ -28,31 +28,35 @@ The task is complete when all of the following are true:
 
 ### Inputs
 
+The dataset lives under `data/` in two stages (see [DATA_REPORT.md](DATA_REPORT.md) for the full reasoning):
+
 | Asset | Location | Count | Format |
 |---|---|---|---|
-| Satellite images | `data/images/{id}.png` | 30 | 256×256 RGBA, uint8 |
-| Roof labels | `data/labels/{id}.png` | 24 (25 originally; `278`'s label deleted, see below) | 256×256 grayscale, uint8 |
+| Satellite images, original | `data/data_org/images_RGBA/{id}.png` | 30 | 256×256 RGBA, uint8 |
+| Roof labels, original | `data/data_org/labels_org/{id}.png` | 24 (25 originally; `278`'s label deleted, see below) | 256×256 grayscale, uint8 |
+| Satellite images, converted (training input) | `data/data_convert/images_RGB/{id}.png` | 30 | 256×256 RGB, uint8 |
+| Roof labels, converted (training input) | `data/data_convert/labels_bin_128/{id}.png` | 24 | 256×256 grayscale, uint8, values strictly `{0, 255}` |
+
+`data_convert/` is built from `data_org/` by [`scripts/build_data_convert.py`](scripts/build_data_convert.py) (`make data-convert`) and is what the training pipeline (`roof_seg/dataset.py`) actually reads; `data_org/` is used only for inspection (`scripts/inspect_data.py`).
 
 ### Splits
 
 | Split | Image IDs | Count | Purpose |
 |---|---|---|---|
-| **Train** | All IDs in `data/images/` with a matching label in `data/labels/` | 24 | Model training (and optional internal validation) |
+| **Train** | All IDs in `data_convert/images_RGB/` with a matching label in `data_convert/labels_bin_128/` | 24 | Model training (and optional internal validation) |
 | **Test** | `278`, `535`, `537`, `539`, `551`, `553` | 6 | Final inference only — no labels available |
 
-### Label semantics
+### Label semantics (`data_org/labels_org/`)
 
 - `0` → background (non-roof)
 - `255` → roof interior
 - `1–254` → boundary/edge pixels around roof polygons
 
-**Canonical binary mask for training:**
+**Canonical binary mask for training** (already applied in `data_convert/labels_bin_128/`; see [DATA_REPORT.md §5](DATA_REPORT.md#5-label-value-distribution--binarization-rule) for why this was chosen over the alternative):
 
 ```python
-mask = (label > 0).astype(np.float32)
+mask = 255 * (label > 128).astype(np.uint8)
 ```
-
-Alternative (`label >= 128`) may be used if documented; both should be evaluated on a validation subset and the chosen rule stated in the write-up.
 
 ### Known data quirks (to be verified in §3.2)
 
@@ -134,11 +138,11 @@ Alternative (`label >= 128`) may be used if documented; both should be evaluated
 
 **Done when:**
 
-- [ ] All 24 train pairs load without error and produce aligned `(image, mask)` tensors of shape `(3, 256, 256)` and `(1, 256, 256)` (or equivalent).
-- [ ] Test loader returns 6 images with the same spatial preprocessing as training (no label required).
-- [ ] Alpha-channel handling matches the §3.2 decision and is documented in code.
-- [ ] Label binarization matches the §3.2 decision.
-- [ ] A quick sanity check (script or notebook cell) visualizes ≥1 `(image, mask)` overlay confirming alignment.
+- [x] All 24 train pairs load without error and produce aligned `(image, mask)` tensors of shape `(3, 256, 256)` and `(1, 256, 256)` (or equivalent).
+- [x] Test loader returns 6 images with the same spatial preprocessing as training (no label required).
+- [x] Alpha-channel handling matches the §3.2 decision and is documented in code.
+- [x] Label binarization matches the §3.2 decision.
+- [x] A quick sanity check (script or notebook cell) visualizes ≥1 `(image, mask)` overlay confirming alignment.
 
 ---
 
@@ -305,7 +309,7 @@ Record the chosen option in the write-up when decided:
 
 | Decision | Options | Recommendation | Decide in |
 |---|---|---|---|
-| Label threshold | `> 0` vs `>= 128` | **Decided: `> 0`** — see [DATA_REPORT.md §5](DATA_REPORT.md#5-label-value-distribution--binarization-rule) | §3.2 |
+| Label threshold | `> 0` vs `> 128` | **Decided: `> 128`** (revised from an earlier `> 0` default) — see [DATA_REPORT.md §5](DATA_REPORT.md#5-label-value-distribution--binarization-rule) | §3.2 |
 | Alpha handling | Drop vs ignore-mask vs composite | **Decided: drop alpha, RGB only** — see [DATA_REPORT.md §4](DATA_REPORT.md#4-alpha-channel-audit) | §3.2 |
 | Mismatched pairs | Keep / drop / relabel | **Decided: drop `278`'s label** (deleted; image moved into `TEST_IDS`) — see [DATA_REPORT.md §3](DATA_REPORT.md#3-duplicate--inconsistent-labels--278s-label-is-wrong) | §3.2 |
 | Validation split | 5-fold CV vs fixed 20/5 hold-out | Fixed hold-out for speed | §3.6 |

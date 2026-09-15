@@ -5,17 +5,14 @@ from __future__ import annotations
 import random
 
 import numpy as np
-import pytest
 
 from roof_seg.config import (
-    BINARIZED_128_LABELS_DIR,
-    BINARIZED_LABELS_DIR,
     IMAGES_DIR,
     IMAGE_SIZE,
     LABELS_DIR,
+    ORG_IMAGES_DIR,
+    ORG_LABELS_DIR,
     RANDOM_SEED,
-    RGB_IMAGES_DIR,
-    RGB_LABELS_DIR,
     TEST_IDS,
 )
 from roof_seg.paths import ensure_output_dirs, CHECKPOINTS_DIR, INSPECTION_DIR, PREDICTIONS_DIR
@@ -23,21 +20,37 @@ from roof_seg.seed import set_seed
 
 
 def test_data_dirs_exist():
+    assert ORG_IMAGES_DIR.is_dir()
+    assert ORG_LABELS_DIR.is_dir()
     assert IMAGES_DIR.is_dir()
     assert LABELS_DIR.is_dir()
 
 
-def test_image_inventory():
-    images = sorted(p.stem for p in IMAGES_DIR.glob("*.png"))
-    labels = sorted(p.stem for p in LABELS_DIR.glob("*.png"))
+def test_org_image_inventory():
+    images = sorted(p.stem for p in ORG_IMAGES_DIR.glob("*.png"))
+    labels = sorted(p.stem for p in ORG_LABELS_DIR.glob("*.png"))
     assert len(images) == 30
     assert len(labels) == 24
     assert set(labels).issubset(set(images))
     assert "278" not in labels
 
 
+def test_convert_image_inventory():
+    images = sorted(p.stem for p in IMAGES_DIR.glob("*.png"))
+    labels = sorted(p.stem for p in LABELS_DIR.glob("*.png"))
+    assert len(images) == 30
+    assert len(labels) == 24
+    assert set(labels).issubset(set(images))
+    assert "278" not in labels
+    # data_convert/ mirrors data_org/ exactly in which IDs are present
+    assert images == sorted(p.stem for p in ORG_IMAGES_DIR.glob("*.png"))
+    assert labels == sorted(p.stem for p in ORG_LABELS_DIR.glob("*.png"))
+
+
 def test_wrong_label_was_deleted_and_image_moved_to_test_set():
     """278's label was wrong (a copy of 270's); it's deleted and 278 is now a test image."""
+    assert (ORG_IMAGES_DIR / "278.png").is_file()
+    assert not (ORG_LABELS_DIR / "278.png").exists()
     assert (IMAGES_DIR / "278.png").is_file()
     assert not (LABELS_DIR / "278.png").exists()
     assert "278" in TEST_IDS
@@ -70,73 +83,28 @@ def test_ensure_output_dirs_creates_directories(tmp_path, monkeypatch):
     assert fake_inspection.is_dir()
 
 
-def test_rgb_dataset_matches_original_minus_alpha():
-    """data_rgb/ (built by scripts/build_rgb_dataset.py) mirrors data/ with alpha dropped."""
+def test_convert_images_match_org_minus_alpha():
+    """data_convert/images_RGB mirrors data_org/images_RGBA with alpha dropped."""
     from PIL import Image
 
-    if not RGB_IMAGES_DIR.is_dir():
-        pytest.skip("data_rgb/ not built yet — run scripts/build_rgb_dataset.py")
-
-    rgb_images = sorted(p.stem for p in RGB_IMAGES_DIR.glob("*.png"))
-    rgb_labels = sorted(p.stem for p in RGB_LABELS_DIR.glob("*.png"))
-    orig_images = sorted(p.stem for p in IMAGES_DIR.glob("*.png"))
-    orig_labels = sorted(p.stem for p in LABELS_DIR.glob("*.png"))
-    assert rgb_images == orig_images
-    assert rgb_labels == orig_labels
-
-    with Image.open(IMAGES_DIR / "121.png") as orig, Image.open(RGB_IMAGES_DIR / "121.png") as rgb:
-        assert orig.mode == "RGBA"
-        assert rgb.mode == "RGB"
-        assert np.array_equal(np.array(orig)[..., :3], np.array(rgb))
+    with Image.open(ORG_IMAGES_DIR / "121.png") as org, Image.open(IMAGES_DIR / "121.png") as conv:
+        assert org.mode == "RGBA"
+        assert conv.mode == "RGB"
+        assert np.array_equal(np.array(org)[..., :3], np.array(conv))
 
 
-def test_binarized_labels_match_original_thresholded():
-    """data_binarized/labels/ (built by scripts/build_binarized_labels.py) equals label > 0."""
+def test_convert_labels_match_org_thresholded_at_128():
+    """data_convert/labels_bin_128 equals 255 * (org_label > 128) (DATA_REPORT.md §5, revised)."""
     from PIL import Image
 
-    if not BINARIZED_LABELS_DIR.is_dir():
-        pytest.skip("data_binarized/ not built yet — run scripts/build_binarized_labels.py")
-
-    binarized_ids = sorted(p.stem for p in BINARIZED_LABELS_DIR.glob("*.png"))
-    orig_labels = sorted(p.stem for p in LABELS_DIR.glob("*.png"))
-    assert binarized_ids == orig_labels
-
-    with Image.open(LABELS_DIR / "241.png") as raw, Image.open(BINARIZED_LABELS_DIR / "241.png") as binary:
-        raw_arr = np.array(raw)
-        binary_arr = np.array(binary)
-        assert set(np.unique(binary_arr).tolist()) <= {0, 255}
-        assert np.array_equal(binary_arr, ((raw_arr > 0) * 255).astype(np.uint8))
-        # boundary pixels (1-254 in the raw label) exist and were pulled into roof=255
-        boundary = (raw_arr > 0) & (raw_arr < 255)
+    with Image.open(ORG_LABELS_DIR / "241.png") as org, Image.open(LABELS_DIR / "241.png") as conv:
+        org_arr = np.array(org)
+        conv_arr = np.array(conv)
+        assert set(np.unique(conv_arr).tolist()) <= {0, 255}
+        assert np.array_equal(conv_arr, (255 * (org_arr > 128).astype(np.uint8)).astype(np.uint8))
+        # boundary pixels (1-254 in the raw label) exist and get split by the threshold
+        boundary = (org_arr > 0) & (org_arr < 255)
         assert boundary.any()
-        assert (binary_arr[boundary] == 255).all()
-
-
-def test_binarized_128_labels_match_original_thresholded():
-    """data_binarized_128/labels/ (scripts/build_binarized_labels_128.py) equals 255*(label > 128)."""
-    from PIL import Image
-
-    if not BINARIZED_128_LABELS_DIR.is_dir():
-        pytest.skip("data_binarized_128/ not built yet — run scripts/build_binarized_labels_128.py")
-
-    binarized_ids = sorted(p.stem for p in BINARIZED_128_LABELS_DIR.glob("*.png"))
-    orig_labels = sorted(p.stem for p in LABELS_DIR.glob("*.png"))
-    assert binarized_ids == orig_labels
-
-    with Image.open(LABELS_DIR / "241.png") as raw, Image.open(BINARIZED_128_LABELS_DIR / "241.png") as binary:
-        raw_arr = np.array(raw)
-        binary_arr = np.array(binary)
-        assert set(np.unique(binary_arr).tolist()) <= {0, 255}
-        assert np.array_equal(binary_arr, (255 * (raw_arr > 128).astype(np.uint8)).astype(np.uint8))
-
-    if BINARIZED_LABELS_DIR.is_dir():
-        # The >128 rule must be strictly more conservative than >0: every roof=255
-        # pixel under >128 must also be roof=255 under >0 (never the other way around).
-        with Image.open(BINARIZED_LABELS_DIR / "241.png") as gt0, \
-             Image.open(BINARIZED_128_LABELS_DIR / "241.png") as gt128:
-            gt0_arr = np.array(gt0)
-            gt128_arr = np.array(gt128)
-            assert ((gt128_arr == 255) <= (gt0_arr == 255)).all()
 
 
 def test_set_seed_is_reproducible():

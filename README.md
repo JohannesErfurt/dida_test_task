@@ -20,28 +20,38 @@ Build a **binary semantic segmentation** pipeline that:
 
 ## Dataset
 
+The dataset lives under `data/` in two stages:
+
 | Asset | Path | Count | Format |
 |---|---|---|---|
-| Satellite images | `data/images/{id}.png` | 30 | 256×256 RGBA |
-| Roof labels | `data/labels/{id}.png` | 24 | 256×256 grayscale |
-| Satellite images, RGB-only | `data_rgb/images/{id}.png` | 30 | 256×256 RGB |
-| Roof labels (copy) | `data_rgb/labels/{id}.png` | 24 | 256×256 grayscale |
-| Roof labels, binarized (`label > 0`) | `data_binarized/labels/{id}.png` | 24 | 256×256 grayscale, values strictly `{0, 255}` |
-| Roof labels, binarized (`label > 128`) | `data_binarized_128/labels/{id}.png` | 24 | 256×256 grayscale, values strictly `{0, 255}` |
+| Satellite images, **original** | `data/data_org/images_RGBA/{id}.png` | 30 | 256×256 RGBA |
+| Roof labels, **original** | `data/data_org/labels_org/{id}.png` | 24 | 256×256 grayscale (antialiased, values 0–254–255) |
+| Satellite images, **converted** (training input) | `data/data_convert/images_RGB/{id}.png` | 30 | 256×256 RGB |
+| Roof labels, **converted** (training input) | `data/data_convert/labels_bin_128/{id}.png` | 24 | 256×256 grayscale, values strictly `{0, 255}` |
 
-Of the original 30 images / 25 labels, **`278`'s label was wrong**: on inspection it is clearly not `278`'s roof mask at all, but a byte-identical copy of `270`'s label — almost certainly a copy/paste annotation error. Training on it would teach the model an incorrect image→mask mapping and hurt prediction quality, so `data/labels/278.png` has been **deleted**. `278`'s image was kept and moved into the test set instead (`TEST_IDS` in `roof_seg/config.py`), so it still gets a prediction once the model is trained — it just never contributes a (wrong) training signal. See [`DATA_REPORT.md` §3](DATA_REPORT.md#3-duplicate--inconsistent-labels--278s-label-is-wrong) for the full writeup.
+`data_org/` is the original data, never modified. `data_convert/` is generated from it by [`scripts/build_data_convert.py`](scripts/build_data_convert.py) (`make data-convert`) and is what the **training pipeline actually reads** (`roof_seg/dataset.py`) — `data_org/` is used only for inspection (`scripts/inspect_data.py`). Regenerate `data_convert/` any time with `make data-convert --overwrite`-equivalent (`python scripts/build_data_convert.py --overwrite`); by default it skips files that already exist.
 
-`data_rgb/` is a generated copy of the dataset with the alpha channel dropped (per the [DATA_REPORT.md §4](DATA_REPORT.md#4-alpha-channel-audit) decision), built by `scripts/build_rgb_dataset.py` (`make rgb-dataset`). The original RGBA dataset in `data/` is left untouched; `data_rgb/` is provided as an inspectable, materialized preprocessing artifact.
+Two preprocessing decisions turn `data_org/` into `data_convert/` (see [DATA_REPORT.md](DATA_REPORT.md) for the full reasoning):
+- **Alpha dropped** (§4): images go from RGBA to RGB. The non-opaque regions are black censorship boxes with negligible overlap with roof pixels.
+- **Labels binarized with `label = 255 * (label > 128)`** (§5, revised from an earlier `label > 0` default): a "majority-coverage" rule — a boundary pixel counts as roof only if more than half its area is covered by the annotated polygon. `outputs/inspection/data_convert_comparison.png` (org image | convert image | org label | convert label) shows the effect on a few samples.
 
-`data_binarized/labels/` is a generated copy of the labels with `mask = (label > 0)` applied (the SPEC's chosen rule — see [DATA_REPORT.md §5](DATA_REPORT.md#5-label-value-distribution--binarization-rule)), built by `scripts/build_binarized_labels.py` (`make binarized-labels`). Unlike the raw labels — which contain antialiased boundary pixels valued `1`–`254` from rasterizing the roof polygons (see [DATA_REPORT.md §3.2 discussion](DATA_REPORT.md)) — every pixel here is strictly `0` or `255` (the standard binary-mask convention — a pixel value of `1`/255 would be indistinguishable from black in any image viewer). The same script also renders `outputs/inspection/binarization_comparison.png`: image | raw label | binarized label | the boundary pixels that got pulled into the roof class, for a handful of samples, so the effect is visible directly rather than just described. The original `data/labels/` is left untouched.
+Of the original 30 images / 25 labels, **`278`'s label was wrong**: on inspection it is clearly not `278`'s roof mask at all, but a byte-identical copy of `270`'s label — almost certainly a copy/paste annotation error. Training on it would teach the model an incorrect image→mask mapping and hurt prediction quality, so it has been **deleted** (no file in either `labels_org/` or `labels_bin_128/`). `278`'s image was kept and moved into the test set instead (`TEST_IDS` in `roof_seg/config.py`), so it still gets a prediction once the model is trained — it just never contributes a (wrong) training signal. See [`DATA_REPORT.md` §3](DATA_REPORT.md#3-duplicate--inconsistent-labels--278s-label-is-wrong) for the full writeup.
 
-`data_binarized_128/labels/` is the same idea with the SPEC's *other* candidate threshold: `label = 255 * (label > 128)`, built by `scripts/build_binarized_labels_128.py` (`make binarized-labels-128`). It's kept **alongside**, not instead of, `data_binarized/` — the SPEC decision (`> 0`) is unchanged, this is purely for comparison. Since `> 128` only counts the darker (more-covered) half of each antialiased boundary pixel as roof, it produces a slightly smaller, tighter mask than `> 0`. The script also renders `outputs/inspection/binarization_threshold_comparison.png`: image | raw label | `>0` | `>128` | where the two rules disagree, for the same samples.
-
-**Train set:** the 24 images in `data/images/` that have a matching label in `data/labels/`.
+**Train set:** the 24 images in `data/data_convert/images_RGB/` that have a matching label in `data/data_convert/labels_bin_128/`.
 
 **Test set (inference only):** `278`, `535`, `537`, `539`, `551`, `553`.
 
-Labels use `0` for background, `255` for roof interior, and `1–254` for boundary pixels. The binarization rule is chosen during data inspection (see [`SPEC.md` §3.2](SPEC.md#32-data-inspection-and-quality-analysis)).
+## Data loading (`roof_seg/dataset.py`)
+
+[`roof_seg/dataset.py`](roof_seg/dataset.py) implements SPEC §3.3 on top of `data/data_convert/` (`roof_seg/config.py::IMAGES_DIR`/`LABELS_DIR`) — it never reads `data_org/`, so alpha-handling and binarization are fixed, materialized artifacts rather than something recomputed on every run:
+
+- **`RoofTrainDataset`** — the 24 `(image, mask)` training pairs (`get_train_ids()` = every stem in `data_convert/labels_bin_128/`, which already excludes `278` — see above). Each item is `{"image": (3,256,256) tensor, "mask": (1,256,256) tensor, "id": str}`.
+- **`RoofTestDataset`** — the 6 `TEST_IDS` images, same preprocessing, no mask. Each item is `{"image": (3,256,256) tensor, "id": str}`.
+- `load_image_rgb()` / `load_binary_mask()` are defensive no-ops on the already-clean `data_convert/` files (`.convert("RGB")`, threshold the array) — they stay correct even if pointed at a different source directory.
+- **Normalization:** `image_to_tensor()` scales to `[0,1]` then applies ImageNet mean/std (`roof_seg/config.py::IMAGENET_MEAN/STD`), matching the pretrained encoder planned for §3.5 — identical for train and test, so preprocessing can't drift between them.
+- `RoofTrainDataset` takes an optional `transform` (Albumentations-style) for §3.4's augmentation pipeline; unset for now.
+
+Run `python scripts/check_dataset.py` (or `make check-dataset`) to sanity-check the loader: verifies dataset lengths (24/6), tensor shapes, strictly-binary masks, and renders `outputs/inspection/dataset_sanity_check.png` (de-normalized image | mask | overlay) to confirm alignment survives the full tensor pipeline.
 
 ## Workflow
 
@@ -62,26 +72,26 @@ Project setup
 ```
 dida_test_task/
 ├── data/
-│   ├── images/               # 30 satellite tiles (RGBA, original)
-│   └── labels/                # 24 roof masks (278's wrong label deleted; 278 moved to TEST_IDS)
-├── data_rgb/                 # Generated: data/ with alpha dropped (see scripts/build_rgb_dataset.py)
-│   ├── images/                # 30 satellite tiles (RGB)
-│   └── labels/                # 24 roof masks (unchanged copy)
-├── data_binarized/            # Generated: data/labels/ with mask = (label > 0) applied (SPEC's chosen rule)
-│   └── labels/                 # 24 roof masks, values strictly {0, 255}
-├── data_binarized_128/        # Generated: data/labels/ with label = 255*(label > 128) — for comparison only
-│   └── labels/                 # 24 roof masks, values strictly {0, 255}
+│   ├── data_org/              # Original, unmodified data
+│   │   ├── images_RGBA/         # 30 satellite tiles (RGBA)
+│   │   └── labels_org/          # 24 roof masks (antialiased, 278's wrong label deleted)
+│   └── data_convert/          # Generated from data_org/ — the training pipeline's actual input
+│       ├── images_RGB/          # 30 satellite tiles (RGB, alpha dropped)
+│       └── labels_bin_128/      # 24 roof masks, values strictly {0, 255} (label > 128)
 ├── roof_seg/                # Python package (config, seeds, pipeline modules)
-│   ├── config.py            # Paths, test IDs, defaults (seed = 42)
+│   ├── config.py            # Paths, test IDs, normalization stats, defaults (seed = 42)
 │   ├── seed.py              # Reproducibility helper
-│   └── paths.py             # Output directory setup
+│   ├── paths.py             # Output directory setup
+│   └── dataset.py           # RoofTrainDataset / RoofTestDataset, preprocessing (§3.3)
 ├── scripts/
-│   ├── inspect_data.py               # Data quality analysis (§3.2)
-│   ├── build_rgb_dataset.py          # Materialize the RGB-only dataset copy
-│   ├── build_binarized_labels.py     # Materialize the label > 0 binarized labels + comparison figure
-│   ├── build_binarized_labels_128.py # Materialize the label > 128 binarized labels + comparison figure
-│   ├── train.py                      # Model training (§3.6)
-│   └── predict.py                    # Test-set inference (§3.8)
+│   ├── inspect_data.py       # Data quality analysis on data_org/ (§3.2)
+│   ├── build_data_convert.py # Build data_convert/ from data_org/ + comparison figure
+│   ├── check_dataset.py      # Sanity-check the dataset loader (§3.3) + overlay figure
+│   ├── train.py               # Model training (§3.6)
+│   └── predict.py             # Test-set inference (§3.8)
+├── tests/
+│   ├── test_smoke.py        # Project setup + dataset-file smoke tests
+│   └── test_dataset.py      # roof_seg.dataset unit tests (§3.3)
 ├── notebooks/               # Exploratory notebooks
 ├── outputs/
 │   ├── checkpoints/         # Saved model weights
@@ -115,10 +125,16 @@ All scripts accept `--seed` (default: **42**, defined in `roof_seg/config.py`).
 # 1. Inspect dataset and document findings
 python scripts/inspect_data.py
 
-# 2. Train segmentation model
+# 2. Build the training-input dataset (RGB images + binarized labels) from the original
+python scripts/build_data_convert.py
+
+# 3. (optional) Sanity-check the dataset loader
+python scripts/check_dataset.py
+
+# 4. Train segmentation model
 python scripts/train.py --epochs 50
 
-# 3. Generate predictions on test images
+# 5. Generate predictions on test images
 python scripts/predict.py --checkpoint outputs/checkpoints/best_model.pt
 ```
 
@@ -127,16 +143,15 @@ python scripts/predict.py --checkpoint outputs/checkpoints/best_model.pt
 Equivalent targets are available via `make` (Git Bash / WSL / any shell with `make`):
 
 ```bash
-make install              # create .venv and install dependencies + roof_seg package
-make inspect              # run dataset inspection
-make rgb-dataset          # build the RGB-only (alpha-dropped) dataset copy at data_rgb/
-make binarized-labels     # build the label > 0 binarized labels copy at data_binarized/ + comparison figure
-make binarized-labels-128 # build the label > 128 binarized labels copy at data_binarized_128/ + comparison figure
-make train                # run training (EPOCHS=50 SEED=42 by default, e.g. make train EPOCHS=10)
-make predict              # run inference on the 6 test images
-make test                 # run the test suite with pytest
-make clean                # remove generated outputs (checkpoints, predictions, inspection)
-make distclean        # clean + remove the virtualenv
+make install       # create .venv and install dependencies + roof_seg package
+make inspect       # run dataset inspection on data/data_org/
+make data-convert  # (re)build data/data_convert/ (RGB images + label>128 labels) from data/data_org/
+make check-dataset # sanity-check the dataset loader (§3.3) + overlay figure
+make train         # run training (EPOCHS=50 SEED=42 by default, e.g. make train EPOCHS=10)
+make predict       # run inference on the 6 test images
+make test          # run the test suite with pytest
+make clean         # remove generated outputs (checkpoints, predictions, inspection)
+make distclean     # clean + remove the virtualenv
 ```
 
 Expected test outputs:
@@ -167,7 +182,7 @@ Final choices are recorded in the write-up after data inspection and validation 
 - [x] Data inspection report (`DATA_REPORT.md` or notebook)
 - [ ] Reproducible training and inference code
 - [ ] Model checkpoint
-- [ ] 5 prediction PNGs for the test set
+- [ ] 6 prediction PNGs for the test set
 - [ ] Write-up covering approach, findings, metrics, and limitations
 
 See the [acceptance checklist in SPEC.md](SPEC.md#4-acceptance-checklist-final-review) before submission.
@@ -178,7 +193,7 @@ See the [acceptance checklist in SPEC.md](SPEC.md#4-acceptance-checklist-final-r
 |---|---|
 | 3.1 Project setup | Done |
 | 3.2 Data inspection | Done |
-| 3.3 Data loading | Not started |
+| 3.3 Data loading | Done |
 | 3.4 Augmentation | Not started |
 | 3.5 Model | Not started |
 | 3.6 Training | Not started |
