@@ -1,4 +1,4 @@
-"""Train roof segmentation model (SPEC §3.6)."""
+"""Train roof segmentation model (SPEC §3.7)."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ def main() -> int:
 
     print(f"Random seed: {args.seed}")
     print(f"Checkpoints directory: {CHECKPOINTS_DIR}")
-    print("Training is not implemented yet (SPEC §3.6).")
+    print("Training is not implemented yet (SPEC §3.7).")
     return 0
 
 

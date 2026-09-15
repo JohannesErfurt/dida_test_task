@@ -1,4 +1,4 @@
-"""Generate roof predictions on test images (SPEC §3.8)."""
+"""Generate roof predictions on test images (SPEC §3.9)."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def main() -> int:
     print(f"Random seed: {args.seed}")
     print(f"Checkpoint: {args.checkpoint}")
     print(f"Predictions directory: {PREDICTIONS_DIR}")
-    print("Inference is not implemented yet (SPEC §3.8).")
+    print("Inference is not implemented yet (SPEC §3.9).")
     return 0
 
 

@@ -18,7 +18,7 @@ clean data_convert/ files, so the functions stay correct even if pointed at
 different (e.g. raw) source directories.
 
 Images are converted to tensors and normalized with ImageNet mean/std,
-matching the pretrained encoder planned for §3.5 (segmentation-models-pytorch
+matching the pretrained encoder planned for §3.6 (segmentation-models-pytorch
 models expect input normalized the same way their encoder was pretrained).
 The same loading/normalization path is used for training and test images, so
 train and inference preprocessing can never drift apart.
@@ -80,7 +80,7 @@ class RoofTrainDataset(Dataset):
     `transform` is an optional Albumentations-style callable applied to the
     raw numpy arrays via `transform(image=image, mask=mask)`, run *before*
     normalization/tensor conversion. Left unset (no augmentation) here --
-    wiring in an actual augmentation pipeline is SPEC §3.4, a separate
+    wiring in an actual augmentation pipeline is SPEC §3.5, a separate
     subtask.
     """
 

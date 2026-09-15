@@ -37,7 +37,7 @@ IMAGE_SIZE = 256
 RANDOM_SEED = 42
 
 # Image normalization (SPEC §3.3): scale to [0,1] then normalize with ImageNet stats, since the
-# pretrained encoder planned for §3.5 (e.g. ResNet34 via segmentation-models-pytorch) was itself
+# pretrained encoder planned for §3.6 (e.g. ResNet34 via segmentation-models-pytorch) was itself
 # pretrained on ImageNet-normalized inputs. Applied identically at train and inference time.
 IMAGENET_MEAN: tuple[float, float, float] = (0.485, 0.456, 0.406)
 IMAGENET_STD: tuple[float, float, float] = (0.229, 0.224, 0.225)

@@ -48,8 +48,8 @@ Of the original 30 images / 25 labels, **`278`'s label was wrong**: on inspectio
 - **`RoofTrainDataset`** — the 24 `(image, mask)` training pairs (`get_train_ids()` = every stem in `data_convert/labels_bin_128/`, which already excludes `278` — see above). Each item is `{"image": (3,256,256) tensor, "mask": (1,256,256) tensor, "id": str}`.
 - **`RoofTestDataset`** — the 6 `TEST_IDS` images, same preprocessing, no mask. Each item is `{"image": (3,256,256) tensor, "id": str}`.
 - `load_image_rgb()` / `load_binary_mask()` are defensive no-ops on the already-clean `data_convert/` files (`.convert("RGB")`, threshold the array) — they stay correct even if pointed at a different source directory.
-- **Normalization:** `image_to_tensor()` scales to `[0,1]` then applies ImageNet mean/std (`roof_seg/config.py::IMAGENET_MEAN/STD`), matching the pretrained encoder planned for §3.5 — identical for train and test, so preprocessing can't drift between them.
-- `RoofTrainDataset` takes an optional `transform` (Albumentations-style) for §3.4's augmentation pipeline; unset for now.
+- **Normalization:** `image_to_tensor()` scales to `[0,1]` then applies ImageNet mean/std (`roof_seg/config.py::IMAGENET_MEAN/STD`), matching the pretrained encoder planned for §3.6 — identical for train and test, so preprocessing can't drift between them.
+- `RoofTrainDataset` takes an optional `transform` (Albumentations-style) for §3.5's augmentation pipeline; unset for now.
 
 Run `python scripts/check_dataset.py` (or `make check-dataset`) to sanity-check the loader: verifies dataset lengths (24/6), tensor shapes, strictly-binary masks, and renders `outputs/inspection/dataset_sanity_check.png` (de-normalized image | mask | overlay) to confirm alignment survives the full tensor pipeline.
 
@@ -57,14 +57,15 @@ Run `python scripts/check_dataset.py` (or `make check-dataset`) to sanity-check 
 
 ```
 Project setup
-  → Data inspection       ← RGB/alpha, label quirks, binarization rule
+  → Data inspection            ← RGB/alpha, label quirks, binarization rule
     → Data loading
-      → Augmentation
-        → Model (pretrained encoder)
-          → Training
-            → Internal evaluation
-              → Test inference
-                → Documentation & delivery
+      → Cross-validation harness   ← built early so it can test augmentation/hyperparameter choices
+        → Augmentation              ← tested with the CV harness (paired on/off)
+          → Model (pretrained encoder)
+            → Training (final, full-data)
+              → Internal evaluation     ← reports the CV results
+                → Test inference
+                  → Documentation & delivery
 ```
 
 ## Project structure
@@ -87,8 +88,8 @@ dida_test_task/
 │   ├── inspect_data.py       # Data quality analysis on data_org/ (§3.2)
 │   ├── build_data_convert.py # Build data_convert/ from data_org/ + comparison figure
 │   ├── check_dataset.py      # Sanity-check the dataset loader (§3.3) + overlay figure
-│   ├── train.py               # Model training (§3.6)
-│   └── predict.py             # Test-set inference (§3.8)
+│   ├── train.py               # Model training (§3.7)
+│   └── predict.py             # Test-set inference (§3.9)
 ├── tests/
 │   ├── test_smoke.py        # Project setup + dataset-file smoke tests
 │   └── test_dataset.py      # roof_seg.dataset unit tests (§3.3)
@@ -194,9 +195,10 @@ See the [acceptance checklist in SPEC.md](SPEC.md#4-acceptance-checklist-final-r
 | 3.1 Project setup | Done |
 | 3.2 Data inspection | Done |
 | 3.3 Data loading | Done |
-| 3.4 Augmentation | Not started |
-| 3.5 Model | Not started |
-| 3.6 Training | Not started |
-| 3.7 Internal evaluation | Not started |
-| 3.8 Test inference | Not started |
-| 3.9 Documentation | Not started |
+| 3.4 Cross-validation harness | Not started |
+| 3.5 Augmentation | Not started |
+| 3.6 Model | Not started |
+| 3.7 Training | Not started |
+| 3.8 Internal evaluation | Not started |
+| 3.9 Test inference | Not started |
+| 3.10 Documentation | Not started |

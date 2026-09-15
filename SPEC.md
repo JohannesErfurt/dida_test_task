@@ -146,7 +146,30 @@ mask = 255 * (label > 128).astype(np.uint8)
 
 ---
 
-### 3.4 Data augmentation (training)
+### 3.4 Cross-validation harness
+
+**Objective:** Build a reusable evaluation protocol — k-fold / leave-one-out cross-validation (CV) over the 24 training pairs — so that augmentation strategies, loss functions, model/optimizer choices, and other hyperparameters (§3.5 onward) can be compared against each other on evidence, not guesswork. Built *before* those decisions are finalized, not bolted on after training as an afterthought.
+
+**Why this is its own subtask:** with only 24 labeled images, a single fixed train/val split (e.g. 19/5) gives a high-variance metric estimate — which handful of images land in validation can swing IoU/Dice by more than the effect of whatever is being tested. Cross-validation averages over all 24 images (each one validated exactly once across folds), giving a much more stable estimate and enabling meaningful *paired* comparisons between configurations (same folds, same seed, only one setting changed).
+
+**Requirements:**
+
+- A deterministic fold-splitting utility over the 24 training IDs (built on `roof_seg/config.py::TEST_IDS`-aware train ID list from §3.3), reproducible given `RANDOM_SEED`.
+- Support both k-fold (e.g. `--n-folds 6`, default) and leave-one-out (`--n-folds 24`) via the same code path — LOOCV is affordable here given the tiny dataset and fast per-model training, and gives the lowest-variance estimate.
+- A runner that, for a given training config, trains one model per fold (that fold held out), evaluates it on the held-out fold, and aggregates the metric (mean ± std across folds) rather than reporting single-fold numbers.
+- Must never touch the 6 official `TEST_IDS` — folds are carved only out of the 24 training IDs.
+- Usable as a **paired comparison tool**: running it twice with only one setting changed (e.g. augmentation on vs off, one loss variant vs another), using identical fold assignment and seed both times, to isolate that setting's effect from fold-composition noise.
+
+**Done when:**
+
+- [ ] Fold-splitting utility exists, is deterministic (same seed → same folds), and asserts no overlap with `TEST_IDS`.
+- [ ] CV runner trains and evaluates across all folds for a given config and reports mean ± std IoU/Dice (not just a single aggregate number with no spread).
+- [ ] At least one paired comparison (e.g. augmentation on vs off, §3.5) is run using identical folds/seed, with results recorded in the write-up.
+- [ ] CV is documented as the internal evaluation protocol referenced in §3.8, including its limitations for a dataset this small (high variance, non-independent folds, risk of overfitting hyperparameters to only 24 images) — see write-up §3.10.
+
+---
+
+### 3.5 Data augmentation (training)
 
 **Objective:** Expand effective training data to mitigate the small sample size (N=25).
 
@@ -161,10 +184,11 @@ mask = 255 * (label > 128).astype(np.uint8)
 - [ ] Augmentations apply to **both** image and mask jointly (mask geometry preserved).
 - [ ] Augmentations are active during training only, not during validation/inference.
 - [ ] Augmentation pipeline is implemented (e.g. Albumentations) and listed in the write-up.
+- [ ] Whether augmentation actually helps is checked with the §3.4 CV harness (paired on/off comparison), not assumed.
 
 ---
 
-### 3.5 Model definition
+### 3.6 Model definition
 
 **Objective:** Define a segmentation model appropriate for small-data roof segmentation.
 
@@ -182,30 +206,29 @@ mask = 255 * (label > 128).astype(np.uint8)
 
 ---
 
-### 3.6 Training loop
+### 3.7 Training loop
 
-**Objective:** Train the model on the 24 labeled pairs and persist a usable checkpoint.
+**Objective:** Train the final model on all 24 labeled pairs and persist a usable checkpoint, using the config selected via the §3.4 CV harness.
 
 **Requirements:**
 
-- Loss function suited to imbalanced segmentation (e.g. **BCE + Dice**, or Dice alone).
+- Loss function suited to imbalanced segmentation (e.g. **BCE + Dice**, or Dice alone) — chosen/confirmed via §3.4 if compared against alternatives.
 - Optimizer and learning rate documented.
 - Training length defined (epochs and/or early stopping).
-- Optional but recommended: hold out a small validation subset from the 24 (e.g. 4–5 images) for monitoring — **not** the 6 official test images.
+- The **final deliverable checkpoint** is trained on all 24 images (no held-out fold) — CV (§3.4) is used to *select* the config beforehand, not to reserve a permanent validation slice from a dataset this small.
 
 **Done when:**
 
 - [ ] Training runs to completion without errors on all 24 train pairs.
 - [ ] A model checkpoint is saved to disk.
-- [ ] Training loss (and validation metric, if used) is logged or plotted.
-- [ ] No test-set images (`278`, `535`, `537`, `539`, `551`, `553`) appear in training or validation splits.
-- [ ] Validation metric (IoU or Dice) on the internal hold-out is reported, if a hold-out is used.
+- [ ] Training loss is logged or plotted.
+- [ ] No test-set images (`278`, `535`, `537`, `539`, `551`, `553`) appear in training or in any CV fold.
 
 ---
 
-### 3.7 Evaluation (internal)
+### 3.8 Evaluation (internal)
 
-**Objective:** Quantify model quality on labeled data without touching the official test set.
+**Objective:** Quantify model quality on labeled data without touching the official test set, using the §3.4 CV harness as the primary protocol.
 
 **Metrics (at least one):**
 
@@ -214,19 +237,19 @@ mask = 255 * (label > 128).astype(np.uint8)
 
 **Done when:**
 
-- [ ] At least one metric is computed on an internal validation subset or via cross-validation on the 24 labels.
-- [ ] Metric value(s) and evaluation protocol are recorded in the write-up.
-- [ ] At least one side-by-side visualization exists: input | ground truth | prediction (on a validation sample).
+- [ ] Metric is computed via the §3.4 cross-validation harness across the 24 labels (mean ± std across folds), not a single fixed split.
+- [ ] Metric value(s) and evaluation protocol (fold count, LOOCV vs k-fold, seed) are recorded in the write-up.
+- [ ] At least one side-by-side visualization exists: input | ground truth | prediction (on a CV validation sample).
 
 ---
 
-### 3.8 Inference on test set
+### 3.9 Inference on test set
 
 **Objective:** Generate final roof predictions for the 6 held-out images.
 
 **Requirements:**
 
-- Load best/final checkpoint.
+- Load best/final checkpoint (the full-data model from §3.7, not a single CV fold model).
 - Apply identical preprocessing as training (except augmentations).
 - Post-process: sigmoid → threshold (default 0.5, document if tuned).
 - Export binary masks as PNG.
@@ -245,7 +268,7 @@ mask = 255 * (label > 128).astype(np.uint8)
 
 ---
 
-### 3.9 Documentation and delivery
+### 3.10 Documentation and delivery
 
 **Objective:** Enable the reviewer to understand and reproduce the work, and provide material for the follow-up discussion.
 
@@ -253,16 +276,17 @@ mask = 255 * (label > 128).astype(np.uint8)
 
 1. Problem framing (semantic segmentation, binary roof mask).
 2. Data inspection findings (inconsistencies, alpha/RGB decision, label threshold).
-3. Model architecture and pretrained backbone.
-4. Why transfer learning and chosen augmentations.
-5. Loss function and training hyperparameters.
-6. Internal validation results (metric + qualitative examples).
-7. Known limitations (dataset size, duplicate label pair, no test ground truth).
+3. Cross-validation protocol (§3.4): fold count, LOOCV vs k-fold, what was compared with it, and its limitations for N=24.
+4. Model architecture and pretrained backbone.
+5. Why transfer learning and chosen augmentations (with CV evidence, not just intuition).
+6. Loss function and training hyperparameters.
+7. Internal validation results (CV metric mean ± std + qualitative examples).
+8. Known limitations (dataset size, duplicate label pair, no test ground truth, CV variance/non-independence at this scale).
 
 **Done when:**
 
 - [ ] README (or `REPORT.md`) contains setup, train, and inference commands.
-- [ ] Write-up addresses all seven points above (including data inspection summary).
+- [ ] Write-up addresses all eight points above (including data inspection summary).
 - [ ] A reviewer can reproduce predictions by following the documented steps.
 - [ ] Deliverable bundle is ready to send: prediction PNGs + write-up (+ code/repo link).
 
@@ -275,15 +299,16 @@ Before submission, confirm:
 | # | Check | Pass |
 |---|---|---|
 | 1 | Data inspection completed; findings documented (alpha, label quirks, binarization rule) | ☑ |
-| 2 | 24 train pairs used (`278`'s wrong label dropped); 6 test images never seen during training | ☐ |
-| 3 | Pretrained segmentation model with documented architecture | ☐ |
-| 4 | Data augmentation applied during training | ☐ |
-| 5 | Labels binarized consistently (per inspection decision) | ☐ |
-| 6 | Checkpoint saved and reloadable | ☐ |
-| 7 | 6 prediction PNGs exported | ☐ |
-| 8 | Internal validation metric or qualitative eval documented | ☐ |
-| 9 | Write-up explains *what* and *why* | ☐ |
-| 10 | End-to-end reproducible from documented commands | ☐ |
+| 2 | 24 train pairs used (`278`'s wrong label dropped); 6 test images never seen during training or CV | ☐ |
+| 3 | Cross-validation harness built and used for at least one paired comparison (e.g. augmentation on/off) | ☐ |
+| 4 | Pretrained segmentation model with documented architecture | ☐ |
+| 5 | Data augmentation applied during training, validated via CV rather than assumed | ☐ |
+| 6 | Labels binarized consistently (per inspection decision) | ☐ |
+| 7 | Checkpoint saved and reloadable | ☐ |
+| 8 | 6 prediction PNGs exported | ☐ |
+| 9 | Internal validation metric (CV mean ± std) or qualitative eval documented | ☐ |
+| 10 | Write-up explains *what* and *why* | ☐ |
+| 11 | End-to-end reproducible from documented commands | ☐ |
 
 ---
 
@@ -293,12 +318,13 @@ Before submission, confirm:
 3.1 Project setup
   → 3.2 Data inspection        ← decisions feed into everything below
     → 3.3 Data loading
-      → 3.4 Augmentation
-        → 3.5 Model
-          → 3.6 Training
-            → 3.7 Internal evaluation
-              → 3.8 Test inference
-                → 3.9 Documentation
+      → 3.4 Cross-validation harness   ← built early so it can test 3.5 onward
+        → 3.5 Augmentation             ← tested with the 3.4 harness (paired on/off)
+          → 3.6 Model
+            → 3.7 Training (final, full-data)
+              → 3.8 Internal evaluation      ← reports the 3.4 CV results
+                → 3.9 Test inference
+                  → 3.10 Documentation
 ```
 
 ---
@@ -312,7 +338,7 @@ Record the chosen option in the write-up when decided:
 | Label threshold | `> 0` vs `> 128` | **Decided: `> 128`** (revised from an earlier `> 0` default) — see [DATA_REPORT.md §5](DATA_REPORT.md#5-label-value-distribution--binarization-rule) | §3.2 |
 | Alpha handling | Drop vs ignore-mask vs composite | **Decided: drop alpha, RGB only** — see [DATA_REPORT.md §4](DATA_REPORT.md#4-alpha-channel-audit) | §3.2 |
 | Mismatched pairs | Keep / drop / relabel | **Decided: drop `278`'s label** (deleted; image moved into `TEST_IDS`) — see [DATA_REPORT.md §3](DATA_REPORT.md#3-duplicate--inconsistent-labels--278s-label-is-wrong) | §3.2 |
-| Validation split | 5-fold CV vs fixed 20/5 hold-out | Fixed hold-out for speed | §3.6 |
-| Model | U-Net vs DeepLabV3+ | U-Net + ResNet34 via `smp` | §3.5 |
-| Loss | BCE, Dice, BCE+Dice | BCE + Dice | §3.6 |
-| Threshold | 0.5 vs tuned on val | 0.5 default; tune if val set exists | §3.8 |
+| Validation strategy | k-fold CV vs LOOCV vs fixed hold-out | **Decided: cross-validation (k-fold or LOOCV) via the §3.4 harness**, not a fixed hold-out — a single ~5-image split is too high-variance at N=24 to trust for comparisons | §3.4 |
+| Model | U-Net vs DeepLabV3+ | U-Net + ResNet34 via `smp` | §3.6 |
+| Loss | BCE, Dice, BCE+Dice | BCE + Dice — confirm via §3.4 CV if compared against Dice-only | §3.7 |
+| Threshold | 0.5 vs tuned on val | 0.5 default; tune if CV suggests otherwise | §3.9 |
