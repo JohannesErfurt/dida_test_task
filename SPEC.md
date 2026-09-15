@@ -200,9 +200,9 @@ mask = 255 * (label > 128).astype(np.uint8)
 
 **Done when:**
 
-- [ ] Model accepts `(B, 3, 256, 256)` and outputs `(B, 1, 256, 256)` logits or probabilities.
-- [ ] Pretrained backbone is identified by name (e.g. `resnet34`, `efficientnet-b0`).
-- [ ] Architecture choice is justified in the write-up (spatial detail preservation, transfer learning, small-data fit).
+- [x] Model accepts `(B, 3, 256, 256)` and outputs `(B, 1, 256, 256)` logits or probabilities. Returns **raw logits** (`activation=None`) so §3.7 can use a numerically stable logits-space BCE — verified by `scripts/check_model.py` and `tests/test_model.py`.
+- [x] Pretrained backbone is identified by name: **U-Net + `resnet34` (ImageNet)** via `segmentation-models-pytorch`, in `roof_seg/model.py`.
+- [x] Architecture choice is justified in the write-up — see `roof_seg/model.py`'s module docstring and README.md's "Model" section (skip connections for boundary detail, pretrained encoder as the key small-data lever, ResNet34 sized to 24 images rather than a larger backbone).
 
 ---
 
@@ -339,6 +339,6 @@ Record the chosen option in the write-up when decided:
 | Alpha handling | Drop vs ignore-mask vs composite | **Decided: drop alpha, RGB only** — see [DATA_REPORT.md §4](DATA_REPORT.md#4-alpha-channel-audit) | §3.2 |
 | Mismatched pairs | Keep / drop / relabel | **Decided: drop `278`'s label** (deleted; image moved into `TEST_IDS`) — see [DATA_REPORT.md §3](DATA_REPORT.md#3-duplicate--inconsistent-labels--278s-label-is-wrong) | §3.2 |
 | Validation strategy | k-fold CV vs LOOCV vs fixed hold-out | **Decided: cross-validation (k-fold or LOOCV) via the §3.4 harness**, not a fixed hold-out — a single ~5-image split is too high-variance at N=24 to trust for comparisons | §3.4 |
-| Model | U-Net vs DeepLabV3+ | U-Net + ResNet34 via `smp` | §3.6 |
+| Model | U-Net vs DeepLabV3+ | **Decided: U-Net + ResNet34 (ImageNet) via `smp`** — see `roof_seg/model.py` docstring for the reasoning | §3.6 |
 | Loss | BCE, Dice, BCE+Dice | BCE + Dice — confirm via §3.4 CV if compared against Dice-only | §3.7 |
 | Threshold | 0.5 vs tuned on val | 0.5 default; tune if CV suggests otherwise | §3.9 |

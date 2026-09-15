@@ -48,8 +48,8 @@ Of the original 30 images / 25 labels, **`278`'s label was wrong**: on inspectio
 - **`RoofTrainDataset`** — the 24 `(image, mask)` training pairs (`get_train_ids()` = every stem in `data_convert/labels_bin_128/`, which already excludes `278` — see above). Each item is `{"image": (3,256,256) tensor, "mask": (1,256,256) tensor, "id": str}`.
 - **`RoofTestDataset`** — the 6 `TEST_IDS` images, same preprocessing, no mask. Each item is `{"image": (3,256,256) tensor, "id": str}`.
 - `load_image_rgb()` / `load_binary_mask()` are defensive no-ops on the already-clean `data_convert/` files (`.convert("RGB")`, threshold the array) — they stay correct even if pointed at a different source directory.
-- **Normalization:** `image_to_tensor()` scales to `[0,1]` then applies ImageNet mean/std (`roof_seg/config.py::IMAGENET_MEAN/STD`), matching the pretrained encoder planned for §3.6 — identical for train and test, so preprocessing can't drift between them.
-- `RoofTrainDataset` takes an optional `transform` (Albumentations-style) for §3.5's augmentation pipeline; unset for now.
+- **Normalization:** `image_to_tensor()` scales to `[0,1]` then applies ImageNet mean/std (`roof_seg/config.py::IMAGENET_MEAN/STD`), matching the pretrained ResNet34 encoder used by §3.6's model (asserted in `build_model()`) — identical for train and test, so preprocessing can't drift between them.
+- `RoofTrainDataset` takes an optional `transform` (Albumentations-style); pass §3.5's `build_train_transform()` for augmented training, leave unset for validation folds and reference loads.
 
 Run `python scripts/check_dataset.py` (or `make check-dataset`) to sanity-check the loader: verifies dataset lengths (24/6), tensor shapes, strictly-binary masks, and renders `outputs/inspection/dataset_sanity_check.png` (de-normalized image | mask | overlay) to confirm alignment survives the full tensor pipeline.
 
@@ -77,7 +77,23 @@ Implements SPEC §3.5: `build_train_transform()` returns an Albumentations pipel
 
 Run `python scripts/check_augmentation.py` (or `make check-augmentation`) to verify: masks stay strictly binary after augmentation (24 images × 3 draws each), `RoofTestDataset` has no augmentation hook, and to render `outputs/inspection/augmentation_grid.png` (original | 5 augmented views, mask overlaid) confirming mask geometry tracks the image through every transform.
 
-**Not yet done:** whether augmentation actually improves segmentation quality needs to be checked with the §3.4 CV harness (paired on/off comparison) — but that requires a trainable model, which doesn't exist until §3.6/§3.7. The placeholder baselines in `scripts/run_cv.py` don't use `RoofTrainDataset` at all, so they can't answer this; it's deferred, not assumed.
+**Not yet done:** whether augmentation actually improves segmentation quality needs to be checked with the §3.4 CV harness (paired on/off comparison) — but that requires a training loop, which doesn't exist until §3.7. The placeholder baselines in `scripts/run_cv.py` don't use `RoofTrainDataset` at all, so they can't answer this; it's deferred, not assumed.
+
+## Model (`roof_seg/model.py`)
+
+Implements SPEC §3.6: `build_model()` returns a **U-Net with an ImageNet-pretrained ResNet34 encoder** (`segmentation-models-pytorch`), mapping `(B, 3, 256, 256)` → `(B, 1, 256, 256)` **raw logits**. ~24.4M parameters.
+
+Why this architecture, for this task:
+
+- **U-Net, for boundary detail.** The metric here (IoU/Dice over regions that are only 5–28% of the frame) is won or lost at roof boundaries. U-Net's skip connections feed high-resolution encoder features straight into the decoder, recovering spatial detail that downsampling destroys — important for the straight, rectangular edges these roofs actually have. An architecture that only upsamples from a coarse bottleneck produces blobbier outlines.
+- **Pretrained encoder — the single most important choice at N=24.** 24 images is nowhere near enough to learn general visual features from scratch. The encoder arrives already knowing edges, texture and shading from ImageNet; training only has to adapt that to "roof vs not-roof" on aerial imagery.
+- **ResNet34 rather than something larger.** Deep enough to carry useful pretrained features, small enough not to instantly overfit 24 images — a ResNet101 or large EfficientNet brings more capacity than this dataset can constrain.
+- **Logits, not probabilities** (`activation=None`): §3.7's loss is expected to be a logits-space `BCEWithLogitsLoss` (numerically stabler than sigmoid-then-BCE), and §3.9's inference applies the sigmoid explicitly before thresholding.
+- **`freeze_encoder=False` by default**, but available: freezing drops trainable parameters from 24.4M to 3.2M (decoder only). Plausible small-data tactic, but aerial imagery is far enough from ImageNet's domain that the encoder usually does need to adapt — so it's off by default and left as something to compare via the §3.4 CV harness rather than assumed either way.
+
+`build_model()` also **asserts the encoder's expected normalization matches `config.IMAGENET_MEAN/STD`** (what `roof_seg/dataset.py` actually applies). Swapping in an encoder pretrained with different statistics — e.g. `inceptionv4`, which expects mean/std of 0.5 — is a one-line change whose only symptom would be a quietly worse model, so it raises instead of silently mis-normalizing.
+
+Run `python scripts/check_model.py` (or `make check-model`) to verify shapes, that outputs really are logits, that the encoder weights are genuinely pretrained (vs. random init), and that `freeze_encoder` works — and to render `outputs/inspection/model_untrained_prediction.png`, an untrained-model "before" reference to compare §3.7's trained output against.
 
 ## Workflow
 
@@ -112,13 +128,15 @@ dida_test_task/
 │   ├── dataset.py           # RoofTrainDataset / RoofTestDataset, preprocessing (§3.3)
 │   ├── metrics.py           # IoU / Dice
 │   ├── cross_validation.py  # Fold splitter, CV runner, paired comparison (§3.4)
-│   └── augmentation.py      # build_train_transform: flips, 90° rotation, color jitter (§3.5)
+│   ├── augmentation.py      # build_train_transform: flips, 90° rotation, color jitter (§3.5)
+│   └── model.py             # build_model: U-Net + pretrained ResNet34 encoder (§3.6)
 ├── scripts/
 │   ├── inspect_data.py         # Data quality analysis on data_org/ (§3.2)
 │   ├── build_data_convert.py   # Build data_convert/ from data_org/ + comparison figure
 │   ├── check_dataset.py        # Sanity-check the dataset loader (§3.3) + overlay figure
 │   ├── run_cv.py                # Exercise the CV harness with placeholder baselines (§3.4)
 │   ├── check_augmentation.py   # Sanity-check the augmentation pipeline (§3.5) + grid figure
+│   ├── check_model.py          # Sanity-check the model definition (§3.6) + untrained-prediction figure
 │   ├── train.py                 # Model training (§3.7)
 │   └── predict.py               # Test-set inference (§3.9)
 ├── tests/
@@ -127,7 +145,8 @@ dida_test_task/
 │   ├── test_metrics.py         # roof_seg.metrics unit tests
 │   ├── test_cross_validation.py # roof_seg.cross_validation unit tests (§3.4)
 │   ├── test_run_cv.py          # scripts/run_cv.py baseline integration tests
-│   └── test_augmentation.py    # roof_seg.augmentation unit tests (§3.5)
+│   ├── test_augmentation.py    # roof_seg.augmentation unit tests (§3.5)
+│   └── test_model.py           # roof_seg.model unit tests (§3.6)
 ├── notebooks/               # Exploratory notebooks
 ├── outputs/
 │   ├── checkpoints/         # Saved model weights
@@ -185,6 +204,7 @@ make data-convert  # (re)build data/data_convert/ (RGB images + label>128 labels
 make check-dataset # sanity-check the dataset loader (§3.3) + overlay figure
 make run-cv        # run the CV harness (§3.4); add COMPARE=1 for a paired comparison
 make check-augmentation # sanity-check the augmentation pipeline (§3.5) + grid figure
+make check-model   # sanity-check the model definition (§3.6) + untrained-prediction figure
 make train         # run training (EPOCHS=50 SEED=42 by default, e.g. make train EPOCHS=10)
 make predict       # run inference on the 6 test images
 make test          # run the test suite with pytest
@@ -234,7 +254,7 @@ See the [acceptance checklist in SPEC.md](SPEC.md#4-acceptance-checklist-final-r
 | 3.3 Data loading | Done |
 | 3.4 Cross-validation harness | Done |
 | 3.5 Augmentation | Done |
-| 3.6 Model | Not started |
+| 3.6 Model | Done |
 | 3.7 Training | Not started |
 | 3.8 Internal evaluation | Not started |
 | 3.9 Test inference | Not started |

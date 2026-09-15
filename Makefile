@@ -10,7 +10,7 @@ SEED       ?= 42
 EPOCHS     ?= 50
 CHECKPOINT ?= outputs/checkpoints/best_model.pt
 
-.PHONY: help venv install inspect data-convert check-dataset run-cv check-augmentation train predict test clean distclean
+.PHONY: help venv install inspect data-convert check-dataset run-cv check-augmentation check-model train predict test clean distclean
 
 help:
 	@echo "Targets:"
@@ -21,6 +21,7 @@ help:
 	@echo "  make check-dataset      sanity-check the dataset loader (SPEC 3.3) + overlay figure"
 	@echo "  make run-cv             run the CV harness (SPEC 3.4) with placeholder baselines; add COMPARE=1 for a paired comparison"
 	@echo "  make check-augmentation sanity-check the augmentation pipeline (SPEC 3.5) + grid figure"
+	@echo "  make check-model        sanity-check the model definition (SPEC 3.6) + untrained-prediction figure"
 	@echo "  make train              run training (SPEC 3.7); EPOCHS=$(EPOCHS) SEED=$(SEED)"
 	@echo "  make predict            run inference on test images (SPEC 3.9); CHECKPOINT=$(CHECKPOINT)"
 	@echo "  make test               run the test suite with pytest"
@@ -55,6 +56,9 @@ endif
 
 check-augmentation: venv
 	$(PYTHON) scripts/check_augmentation.py --seed $(SEED)
+
+check-model: venv
+	$(PYTHON) scripts/check_model.py --seed $(SEED)
 
 train: venv
 	$(PYTHON) scripts/train.py --seed $(SEED) --epochs $(EPOCHS)
