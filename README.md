@@ -79,7 +79,7 @@ Run `python scripts/check_augmentation.py` (or `make check-augmentation`) to ver
 
 **Does it actually help?** Checked, not assumed — `make compare-augmentation` runs the §3.4 harness as a paired comparison (6 folds, 25 epochs, identical folds and seed, augmentation the only difference).
 
-> **Note:** the numbers below predate best-checkpoint tracking (§3.7) — each fold's score was whatever epoch 25 happened to land on, not that fold's best epoch. Worth re-running now that `train_model()` reports the best-Dice epoch per fold; not yet redone.
+> **Note:** the numbers below predate best-checkpoint tracking (§3.7) — each fold's score was whatever epoch 25 happened to land on, not that fold's best epoch. Superseded by the re-run further down, kept here for history.
 
 | | mean IoU | mean Dice |
 |---|---|---|
@@ -90,6 +90,16 @@ Run `python scripts/check_augmentation.py` (or `make check-augmentation`) to ver
 Augmentation is ahead on 4 of 6 folds (per-fold range −0.055 to +0.090). But **+0.033 IoU sits below the 0.05–0.10 threshold this project set in advance** for calling a difference real at N=24 — so the honest conclusion is *suggestive, not established*. Augmentation stays **on**: the point estimate favours it, fold-to-fold variance is lower with it (0.050 vs 0.061 IoU), it's well-motivated for a 24-image dataset, it costs nothing at inference, and there's no evidence it hurts. What this does **not** support is a claim that augmentation was measurably decisive — with 24 images and 6 folds, detecting an effect this size reliably would need more data than exists here.
 
 This is also the project's first real generalization estimate: **IoU ≈ 0.70, Dice ≈ 0.82** on images the model never saw, against the ~0.19 IoU no-learning baseline from §3.4.
+
+**Re-run with best-checkpoint tracking, and 3 more features tested (`scripts/compare_augmentation_ensemble.py`):** same 6 folds/seed, 25 epochs, patience 10, each fold keeping its own best-Dice-epoch weights. Three configs compared: no augmentation, the original 3-feature set above, and an extended 6-feature set adding RGB-shift/gamma, mild perspective/affine warp, and `RandomResizedCrop` (all verified mask-safe the same way — see `roof_seg/augmentation.py`'s docstring on `apply_to_mask`/`cv2.INTER_NEAREST`).
+
+| config | mean IoU | mean Dice |
+|---|---|---|
+| No augmentation | 0.705 ± 0.016 | 0.824 ± 0.011 |
+| 3 features (flip, rotate90, color jitter) | 0.712 ± 0.039 | 0.829 ± 0.026 |
+| 6 features (+ rgb/gamma, perspective, resized crop) | 0.717 ± 0.033 | 0.832 ± 0.023 |
+
+Same conclusion as before, now on firmer footing (best-epoch checkpoints instead of an arbitrary stopping point): all pairwise gaps (~0.007–0.012 IoU) are well under the 0.05–0.10 noise threshold. `DEFAULT_FEATURES` stays at the original 3 — the 6-feature set shows no real edge over it at N=24, and its extra transforms (perspective/crop) are more aggressive than the evidence justifies adding. Qualitative check: 6-fold-ensemble majority-vote predictions (each config's 6 fold-models voting per pixel) on the 6 test images look near-identical across all three configs — see `outputs/inspection/augmentation_ensemble_comparison.png`.
 
 ## Model (`roof_seg/model.py`)
 
@@ -130,6 +140,12 @@ Run: epoch 1 predicts almost the entire frame as roof (the model hasn't learned 
 **Final run** (`make train`, 40 epochs, all 24 images): loss 1.52 → 0.198, converging smoothly (`outputs/inspection/training_history.png`). The checkpoint scores IoU 0.90 / Dice 0.95 **on its own training data** — that is a measure of fit, *not* generalization, and is reported only as evidence the model has the capacity to fit this task. The honest generalization estimate comes from cross-validation (§3.4/§3.8), where each model is scored on images it never saw.
 
 An earlier sanity run (20 epochs, 4 images held out) climbed from IoU 0.14 to ~0.60–0.67, against the ~0.19 no-learning baseline from §3.4 — the model is clearly learning, and the fold-to-fold wobble in that range is exactly the small-N variance §3.4 was built to average over.
+
+## Test-time augmentation (`roof_seg/tta.py`)
+
+Optional inference-time addition beyond SPEC §3.9's core requirement. `predict_with_tta()` runs the model on all 8 dihedral views of a test image (horizontal flip × 90° rotation) and averages the sigmoid probability maps, mapping each view's prediction back to original pixel coordinates. This reuses the exact-permutation property already relied on for §3.5's flip/rotate90 augmentation: since these transforms move pixels around without interpolating, the inverse mapping is also exact — no resampling artifacts creep into the averaged probability map.
+
+Run `python scripts/check_tta.py` to compare plain vs. TTA predictions on all 6 test images (`outputs/inspection/tta_comparison.png`). Plain and TTA predictions agree on 98.97–99.62% of pixels per image; the disagreement is concentrated on roof-boundary pixels, i.e. TTA mildly refines edges rather than changing which regions are detected as roofs — expected, since the model's interior predictions are already confident and 8-way averaging mainly smooths out per-view boundary noise.
 
 ## Workflow
 

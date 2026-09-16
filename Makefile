@@ -11,7 +11,7 @@ EPOCHS     ?= 40
 CHECKPOINT ?= outputs/checkpoints/best_model.pt
 CV_EPOCHS  ?= 25
 
-.PHONY: help venv install inspect data-convert check-dataset run-cv compare-augmentation check-augmentation check-model train train-with-preview predict test clean distclean
+.PHONY: help venv install inspect data-convert check-dataset run-cv compare-augmentation compare-augmentation-ensemble check-augmentation check-model train train-with-preview check-tta predict test clean distclean
 
 help:
 	@echo "Targets:"
@@ -22,10 +22,12 @@ help:
 	@echo "  make check-dataset      sanity-check the dataset loader (SPEC 3.3) + overlay figure"
 	@echo "  make run-cv             cross-validate the real model (SPEC 3.4); MODE=baseline for the fast placeholder floor"
 	@echo "  make compare-augmentation  paired CV comparison: augmentation on vs off, identical folds (slow)"
+	@echo "  make compare-augmentation-ensemble  3-way CV comparison (no-aug/3-feature/6-feature) + majority-vote test predictions (slow)"
 	@echo "  make check-augmentation sanity-check the augmentation pipeline (SPEC 3.5) + grid figure"
 	@echo "  make check-model        sanity-check the model definition (SPEC 3.6) + untrained-prediction figure"
 	@echo "  make train              run training (SPEC 3.7); EPOCHS=$(EPOCHS) SEED=$(SEED)"
 	@echo "  make train-with-preview   same training run, plus a per-epoch test-set prediction overlay (slower)"
+	@echo "  make check-tta          compare plain vs. test-time-augmented predictions on the 6 test images"
 	@echo "  make predict            run inference on test images (SPEC 3.9); CHECKPOINT=$(CHECKPOINT)"
 	@echo "  make test               run the test suite with pytest"
 	@echo "  make clean              remove generated outputs (checkpoints, predictions, inspection)"
@@ -60,6 +62,9 @@ endif
 compare-augmentation: venv
 	$(PYTHON) scripts/run_cv.py --seed $(SEED) --mode model --epochs $(CV_EPOCHS) --compare augmentation
 
+compare-augmentation-ensemble: venv
+	$(PYTHON) scripts/compare_augmentation_ensemble.py --seed $(SEED)
+
 check-augmentation: venv
 	$(PYTHON) scripts/check_augmentation.py --seed $(SEED)
 
@@ -71,6 +76,9 @@ train: venv
 
 train-with-preview: venv
 	$(PYTHON) scripts/train_with_test_preview.py --seed $(SEED) --epochs $(EPOCHS)
+
+check-tta: venv
+	$(PYTHON) scripts/check_tta.py --checkpoint $(CHECKPOINT)
 
 predict: venv
 	$(PYTHON) scripts/predict.py --seed $(SEED) --checkpoint $(CHECKPOINT)
