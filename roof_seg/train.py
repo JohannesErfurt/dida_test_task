@@ -83,6 +83,10 @@ class TrainConfig:
     weight_decay: float = 1e-4
     loss: str = "bce_dice"
     augment: bool = True
+    # None -> roof_seg.augmentation.DEFAULT_FEATURES when augment=True. Override with an
+    # explicit tuple (e.g. a single feature, or () for none) for scripts/search_augmentation.py's
+    # per-feature comparisons; ignored entirely when augment=False.
+    augment_features: Optional[tuple[str, ...]] = None
     freeze_encoder: bool = False
     encoder_name: str = DEFAULT_ENCODER
     seed: int = RANDOM_SEED
@@ -183,7 +187,7 @@ def train_model(
 
     set_seed(config.seed)
 
-    transform = build_train_transform() if config.augment else None
+    transform = build_train_transform(features=config.augment_features) if config.augment else None
     dataset = RoofTrainDataset(ids=train_ids, transform=transform)
     loader = DataLoader(
         dataset,

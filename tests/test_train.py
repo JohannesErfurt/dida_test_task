@@ -95,6 +95,45 @@ def test_augment_false_disables_the_transform(monkeypatch):
     assert all(t is None for t in seen_transforms)
 
 
+def test_augment_features_selects_only_the_requested_features(monkeypatch):
+    """TrainConfig.augment_features must reach build_train_transform() unchanged."""
+    import roof_seg.train as train_module
+
+    seen_features = []
+    original_build = train_module.build_train_transform
+
+    def spy(*args, **kwargs):
+        seen_features.append(kwargs.get("features"))
+        return original_build(*args, **kwargs)
+
+    monkeypatch.setattr(train_module, "build_train_transform", spy)
+    train_model(
+        train_ids=IDS[:4],
+        config=TrainConfig(epochs=1, batch_size=2, augment=True, augment_features=("rgb_gamma",)),
+        progress=False,
+    )
+    assert seen_features == [("rgb_gamma",)]
+
+
+def test_augment_features_none_falls_back_to_default(monkeypatch):
+    import roof_seg.train as train_module
+
+    seen_features = []
+    original_build = train_module.build_train_transform
+
+    def spy(*args, **kwargs):
+        seen_features.append(kwargs.get("features"))
+        return original_build(*args, **kwargs)
+
+    monkeypatch.setattr(train_module, "build_train_transform", spy)
+    train_model(
+        train_ids=IDS[:4],
+        config=TrainConfig(epochs=1, batch_size=2, augment=True, augment_features=None),
+        progress=False,
+    )
+    assert seen_features == [None]
+
+
 def test_checkpoint_round_trip_preserves_predictions(tmp_path):
     result = train_model(train_ids=IDS[:4], config=TINY, progress=False)
     path = tmp_path / "ckpt.pt"
