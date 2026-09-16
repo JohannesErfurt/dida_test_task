@@ -77,7 +77,17 @@ Implements SPEC §3.5: `build_train_transform()` returns an Albumentations pipel
 
 Run `python scripts/check_augmentation.py` (or `make check-augmentation`) to verify: masks stay strictly binary after augmentation (24 images × 3 draws each), `RoofTestDataset` has no augmentation hook, and to render `outputs/inspection/augmentation_grid.png` (original | 5 augmented views, mask overlaid) confirming mask geometry tracks the image through every transform.
 
-**Not yet done:** whether augmentation actually improves segmentation quality needs to be checked with the §3.4 CV harness (paired on/off comparison) — but that requires a training loop, which doesn't exist until §3.7. The placeholder baselines in `scripts/run_cv.py` don't use `RoofTrainDataset` at all, so they can't answer this; it's deferred, not assumed.
+**Does it actually help?** Checked, not assumed — `make compare-augmentation` runs the §3.4 harness as a paired comparison (6 folds, 25 epochs, identical folds and seed, augmentation the only difference):
+
+| | mean IoU | mean Dice |
+|---|---|---|
+| **With** augmentation | 0.697 ± 0.050 | 0.818 ± 0.035 |
+| **Without** augmentation | 0.664 ± 0.061 | 0.789 ± 0.050 |
+| Paired difference | **+0.033** | +0.028 |
+
+Augmentation is ahead on 4 of 6 folds (per-fold range −0.055 to +0.090). But **+0.033 IoU sits below the 0.05–0.10 threshold this project set in advance** for calling a difference real at N=24 — so the honest conclusion is *suggestive, not established*. Augmentation stays **on**: the point estimate favours it, fold-to-fold variance is lower with it (0.050 vs 0.061 IoU), it's well-motivated for a 24-image dataset, it costs nothing at inference, and there's no evidence it hurts. What this does **not** support is a claim that augmentation was measurably decisive — with 24 images and 6 folds, detecting an effect this size reliably would need more data than exists here.
+
+This is also the project's first real generalization estimate: **IoU ≈ 0.70, Dice ≈ 0.82** on images the model never saw, against the ~0.19 IoU no-learning baseline from §3.4.
 
 ## Model (`roof_seg/model.py`)
 

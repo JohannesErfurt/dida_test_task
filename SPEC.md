@@ -184,7 +184,7 @@ mask = 255 * (label > 128).astype(np.uint8)
 - [x] Augmentations apply to **both** image and mask jointly (mask geometry preserved). Restricted to flips and 90° rotation specifically (not arbitrary-angle) so no interpolation ever touches the mask — see `roof_seg/augmentation.py` docstring.
 - [x] Augmentations are active during training only, not during validation/inference. `RoofTestDataset` has no `transform` parameter at all (structural, not just "unset by convention") — see `scripts/check_augmentation.py`.
 - [x] Augmentation pipeline is implemented (Albumentations) and listed in the write-up — see README.md's "Data augmentation" section.
-- [ ] Whether augmentation actually helps is checked with the §3.4 CV harness (paired on/off comparison), not assumed. **Deferred**: this requires a trainable model, which doesn't exist until §3.6/§3.7. Will run once those land.
+- [x] Whether augmentation actually helps is checked with the §3.4 CV harness (paired on/off comparison), not assumed. **Run** (`make compare-augmentation`, 6 folds, 25 epochs, seed 42): with-aug IoU 0.697 ± 0.050 vs without-aug 0.664 ± 0.061 — a paired difference of **+0.033 IoU** (+0.028 Dice), better on 4/6 folds. That is *below* the 0.05–0.10 noise threshold this SPEC set in advance, so the result is **suggestive, not established**. Augmentation is kept on (point estimate favours it, lower fold-to-fold variance, well-motivated at N=24, free at inference, no evidence of harm) — but the evidence is recorded as inconclusive rather than overclaimed. See README.md's "Data augmentation" section.
 
 ---
 
