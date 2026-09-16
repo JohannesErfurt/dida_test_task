@@ -207,3 +207,33 @@ def test_checkpoint_records_best_epoch_and_stopped_early(tmp_path, monkeypatch):
 
     assert checkpoint["best_epoch"] == 2
     assert checkpoint["stopped_early"] is True
+
+
+def test_epoch_callback_fires_once_per_completed_epoch_with_model_in_eval_mode():
+    seen_epochs = []
+    seen_training_flags = []
+
+    def callback(epoch, model):
+        seen_epochs.append(epoch)
+        seen_training_flags.append(model.training)
+
+    config = TrainConfig(epochs=3, batch_size=2)
+    train_model(train_ids=IDS[:4], config=config, progress=False, epoch_callback=callback)
+
+    assert seen_epochs == [1, 2, 3]
+    assert all(flag is False for flag in seen_training_flags), "model should be in eval() mode in the callback"
+
+
+def test_epoch_callback_stops_firing_after_early_stop(monkeypatch):
+    dices = [0.5, 0.6, 0.55, 0.55, 0.55]  # best at epoch 2, stop after epoch 5 (patience=3)
+    snapshots = _patch_evaluate_with_scripted_dice(monkeypatch, dices)
+    del snapshots  # unused here; only need the scripted dice sequence
+
+    seen_epochs = []
+    config = TrainConfig(epochs=10, batch_size=2, early_stopping_patience=3)
+    train_model(
+        train_ids=IDS[:4], val_ids=IDS[4:6], config=config, progress=False,
+        epoch_callback=lambda epoch, model: seen_epochs.append(epoch),
+    )
+
+    assert seen_epochs == [1, 2, 3, 4, 5]  # fired for every epoch actually run, then stopped

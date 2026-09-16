@@ -123,6 +123,10 @@ This has **no effect on the deliverable checkpoint**: the final run trains on al
 
 **Leakage protection:** `scripts/train.py` asserts no `TEST_IDS` reach training, `get_train_ids()` reads only the 24 labeled IDs, and `make_folds()` raises if a test ID enters a fold. Validation data is always loaded with `transform=None`, so held-out images are never augmented — verified by a test that spies on the dataset construction.
 
+**Watching predictions evolve on the real test set:** `train_model()` takes an optional `epoch_callback(epoch, model)`, fired after every completed epoch (in eval mode) purely for side effects — it doesn't touch training. [`scripts/train_with_test_preview.py`](scripts/train_with_test_preview.py) (`make train-with-preview`) uses it to run a forward pass over the 6 real `TEST_IDS` images (no ground truth exists for them — this is qualitative, not a metric) every epoch and saves an image\|predicted-mask-overlay grid to `outputs/inspection/epoch_progress/epoch_NNN.png`, plus a compact multi-epoch contact sheet (`epoch_progress_contact_sheet.png`). Same configuration as the deliverable run (all 24 images, no held-out split, `epochs=40`) — since there's no validation split, `early_stopping_patience` has no effect here either, same reasoning as above; the overlays are for visual inspection of how the prediction sharpens over training, not for deciding when to stop.
+
+Run: epoch 1 predicts almost the entire frame as roof (the model hasn't learned "roof" yet, just "probably foreground"); by epoch 6 it has already snapped onto the actual building outlines; epochs 6→40 mostly sharpen boundaries and shed false positives on roads/driveways (clearest on `278` and `537`, where an early diagonal road misprediction disappears). Saved checkpoint is bit-for-bit the same training run as `scripts/train.py`'s default (same seed, same config) — this script exists to add the visualization, not to change what gets trained.
+
 **Final run** (`make train`, 40 epochs, all 24 images): loss 1.52 → 0.198, converging smoothly (`outputs/inspection/training_history.png`). The checkpoint scores IoU 0.90 / Dice 0.95 **on its own training data** — that is a measure of fit, *not* generalization, and is reported only as evidence the model has the capacity to fit this task. The honest generalization estimate comes from cross-validation (§3.4/§3.8), where each model is scored on images it never saw.
 
 An earlier sanity run (20 epochs, 4 images held out) climbed from IoU 0.14 to ~0.60–0.67, against the ~0.19 no-learning baseline from §3.4 — the model is clearly learning, and the fold-to-fold wobble in that range is exactly the small-N variance §3.4 was built to average over.
@@ -172,6 +176,7 @@ dida_test_task/
 │   ├── check_augmentation.py   # Sanity-check the augmentation pipeline (§3.5) + grid figure
 │   ├── check_model.py          # Sanity-check the model definition (§3.6) + untrained-prediction figure
 │   ├── train.py                 # Model training (§3.7)
+│   ├── train_with_test_preview.py # Same training run + a per-epoch test-set overlay (§3.7)
 │   └── predict.py               # Test-set inference (§3.9)
 ├── tests/
 │   ├── test_smoke.py           # Project setup + dataset-file smoke tests
@@ -223,7 +228,7 @@ python scripts/build_data_convert.py
 python scripts/check_dataset.py
 
 # 4. Train segmentation model
-python scripts/train.py --epochs 50
+python scripts/train.py --epochs 40
 
 # 5. Generate predictions on test images
 python scripts/predict.py --checkpoint outputs/checkpoints/best_model.pt

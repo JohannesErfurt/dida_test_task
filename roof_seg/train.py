@@ -155,6 +155,7 @@ def train_model(
     config: Optional[TrainConfig] = None,
     progress: bool = True,
     device: Optional[torch.device] = None,
+    epoch_callback: Optional[Callable[[int, torch.nn.Module], None]] = None,
 ) -> TrainResult:
     """Train a model on `train_ids`, optionally scoring `val_ids` each epoch.
 
@@ -164,6 +165,13 @@ def train_model(
             means no validation -- the final-checkpoint case.
         config: hyperparameters; see `TrainConfig`.
         progress: print per-epoch loss (and val metrics, if any).
+        epoch_callback: if given, called as `epoch_callback(epoch, model)` at
+            the end of every completed epoch (including the final one before
+            an early stop), with the model in eval mode. For side effects
+            only (e.g. rendering a progress figure) -- has no effect on
+            training and is not persisted in the checkpoint. The model
+            passed in is whatever this epoch actually produced, not
+            necessarily the best-so-far snapshot returned at the end.
     """
     config = config or TrainConfig()
     device = device or get_device()
@@ -238,6 +246,10 @@ def train_model(
 
         if progress:
             print(message, flush=True)
+
+        if epoch_callback is not None:
+            model.eval()
+            epoch_callback(epoch, model)
 
         if (
             val_ids
