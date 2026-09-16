@@ -15,3 +15,7 @@ tqdm>=4.66,<5
 
 # Testing
 pytest>=8.0,<9
+
+# Notebooks (notebooks/tta_experiment.ipynb)
+jupyter>=1.0,<2
+ipykernel>=6.29,<7

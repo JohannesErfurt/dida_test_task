@@ -143,9 +143,16 @@ An earlier sanity run (20 epochs, 4 images held out) climbed from IoU 0.14 to ~0
 
 ## Test-time augmentation (`roof_seg/tta.py`)
 
-Optional inference-time addition beyond SPEC §3.9's core requirement. `predict_with_tta()` runs the model on all 8 dihedral views of a test image (horizontal flip × 90° rotation) and averages the sigmoid probability maps, mapping each view's prediction back to original pixel coordinates. This reuses the exact-permutation property already relied on for §3.5's flip/rotate90 augmentation: since these transforms move pixels around without interpolating, the inverse mapping is also exact — no resampling artifacts creep into the averaged probability map.
+Optional inference-time addition beyond SPEC §3.9's core requirement. `predict_with_tta()` averages sigmoid probability maps over two view families:
 
-Run `python scripts/check_tta.py` to compare plain vs. TTA predictions on all 6 test images (`outputs/inspection/tta_comparison.png`). Plain and TTA predictions agree on 98.97–99.62% of pixels per image; the disagreement is concentrated on roof-boundary pixels, i.e. TTA mildly refines edges rather than changing which regions are detected as roofs — expected, since the model's interior predictions are already confident and 8-way averaging mainly smooths out per-view boundary noise.
+- **Geometric (default, always on):** all 8 dihedral views (horizontal flip × 90° rotation), each prediction mapped back to original pixel coordinates. This reuses the exact-permutation property already relied on for §3.5's flip/rotate90 augmentation: since these transforms move pixels around without interpolating, the inverse mapping is also exact — no resampling artifacts creep into the averaged probability map.
+- **Color (optional, `color_variants=DEFAULT_COLOR_VARIANTS`):** 4 fixed brightness/gamma perturbations. These never move a pixel, only its value, so a color-perturbed view's prediction is *already* pixel-aligned with the original — no inverse mapping needed, it's just another view to average in.
+
+**Why not perspective or RandomResizedCrop as TTA views** (the other two §3.5 augmentation features): both resample/crop, so recovering an exact per-pixel inverse for their *predictions* isn't possible without reintroducing interpolation — the same reason those two need `cv2.INTER_NEAREST` special-casing to stay mask-safe as *training* augmentations at all. TTA only uses transform families with either an exact inverse (geometric) or no geometric effect whatsoever (color).
+
+Run `python scripts/check_tta.py` (or `make check-tta`) to compare plain / geometric-TTA / geometric+color-TTA predictions on all 6 test images (`outputs/inspection/tta_comparison.png`). Plain vs. geometric-only TTA agree on 98.97–99.62% of pixels per image; adding the 4 color views shifts a further 0.15–0.44% (geometric-TTA vs. geometric+color-TTA agreement: 99.56–99.88%). Both disagreement layers concentrate on roof-boundary pixels — mild edge refinement, not a change in which regions are detected as roofs.
+
+**`notebooks/tta_experiment.ipynb`** — trains the full-data model (all 24 images, no held-out split, up to 100 epochs, matching the final deliverable's training regime) and, after every epoch, renders a plain / geometric-TTA / geometric+color-TTA prediction grid on the 6 real test images, for qualitative inspection of how predictions evolve and how much TTA changes them at each stage of training. No validation split means no automatic best-epoch signal here — for a quantitative best-epoch estimate, see the CV ensemble comparison above (~18–21 epochs of a 25-epoch budget, on average).
 
 ## Workflow
 
