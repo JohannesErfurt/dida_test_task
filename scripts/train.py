@@ -54,6 +54,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight-decay", type=float, default=defaults.weight_decay)
     parser.add_argument("--loss", default=defaults.loss, choices=["bce_dice", "bce", "dice"])
     parser.add_argument("--no-augment", action="store_true", help="Disable §3.5 augmentation.")
+    parser.add_argument(
+        "--augment-features",
+        type=str,
+        default=None,
+        metavar="FEAT1,FEAT2,...",
+        help="Comma-separated subset of roof_seg.augmentation.ALL_FEATURES to use "
+        "(e.g. 'flip,rotate90,color_jitter,rgb_gamma'). Default: DEFAULT_FEATURES "
+        "(flip, rotate90, color_jitter). Ignored if --no-augment is set.",
+    )
     parser.add_argument("--freeze-encoder", action="store_true", help="Train the decoder only.")
     parser.add_argument(
         "--early-stopping-patience",
@@ -115,6 +124,9 @@ def main() -> int:
     args = parse_args()
     ensure_output_dirs()
 
+    augment_features = (
+        tuple(f.strip() for f in args.augment_features.split(",")) if args.augment_features else None
+    )
     config = TrainConfig(
         epochs=args.epochs,
         batch_size=args.batch_size,
@@ -122,6 +134,7 @@ def main() -> int:
         weight_decay=args.weight_decay,
         loss=args.loss,
         augment=not args.no_augment,
+        augment_features=augment_features,
         freeze_encoder=args.freeze_encoder,
         seed=args.seed,
         early_stopping_patience=args.early_stopping_patience,

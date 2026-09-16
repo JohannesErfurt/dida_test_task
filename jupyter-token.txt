@@ -1,2 +1,0 @@
-Currently running servers:
-http://9548755069f8:8888/?token=012987547a0e957143c6703b152689d838ade4d931686699 :: /austausch/JE/dida_test_task/notebooks

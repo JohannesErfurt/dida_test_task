@@ -123,7 +123,7 @@ Implements SPEC §3.7. `make train` (or `python scripts/train.py`) trains on **a
 
 **Loss — BCE + soft Dice** (`roof_seg/losses.py`), both computed on logits. Roof pixels are only 5–28% of a frame, so plain BCE — averaged uniformly over pixels — lets the ~86% background dominate the gradient and can look "low loss, mediocre roofs". Dice measures region overlap instead, so correctly-predicted background contributes almost nothing to it, which makes it imbalance-insensitive and aligned with the reported metric; but on its own its gradients are poorly conditioned early, when predictions are near-zero and the intersection term is ~0. Summing them gets BCE's stable optimization plus Dice's pressure toward overlap. Dice is averaged **per sample**, not over a pooled batch, so a large-roof tile can't drown out a small-roof one.
 
-**Hyperparameters** (`TrainConfig`): AdamW, lr 3e-4, weight decay 1e-4, batch size 4, 40 epochs, augmentation on. 3e-4 is a standard fine-tuning rate for a pretrained encoder — enough to adapt ImageNet features to aerial imagery without destroying them. Batch 4 gives 6 steps/epoch over 24 images, keeping BatchNorm statistics usable (batch 1–2 would make them very noisy).
+**Hyperparameters** (`TrainConfig`): AdamW, lr 3e-4, weight decay 1e-4, batch size 4, 40 epochs, augmentation on. 3e-4 is a standard fine-tuning rate for a pretrained encoder — enough to adapt ImageNet features to aerial imagery without destroying them. Batch 4 gives 6 steps/epoch over 24 images, keeping BatchNorm statistics usable (batch 1–2 would make them very noisy). `--augment-features FEAT1,FEAT2,...` selects a specific subset of `roof_seg.augmentation.ALL_FEATURES` (defaults to `DEFAULT_FEATURES` if omitted) — the exact knob `notebooks/feature_tta_selection.ipynb`'s final recommendation prints a ready-to-run command for.
 
 **One implementation, two uses.** The same `train_model()` serves both the CV harness (`make_cv_train_fn()` adapts it to §3.4's `train_fn` interface) and the final checkpoint — so the configuration CV measures is exactly the configuration the deliverable is trained with, with no second code path to drift. The final model trains on all 24 images with **no held-out split**: per SPEC §3.7, CV selects the config beforehand rather than permanently reserving a validation slice from a dataset this small. `--val-fraction N` exists for a quick sanity run that reports per-epoch metrics, but it shrinks the training set and shouldn't produce the deliverable.
 
@@ -153,6 +153,17 @@ Optional inference-time addition beyond SPEC §3.9's core requirement. `predict_
 Run `python scripts/check_tta.py` (or `make check-tta`) to compare plain / geometric-TTA / geometric+color-TTA predictions on all 6 test images (`outputs/inspection/tta_comparison.png`). Plain vs. geometric-only TTA agree on 98.97–99.62% of pixels per image; adding the 4 color views shifts a further 0.15–0.44% (geometric-TTA vs. geometric+color-TTA agreement: 99.56–99.88%). Both disagreement layers concentrate on roof-boundary pixels — mild edge refinement, not a change in which regions are detected as roofs.
 
 **`notebooks/tta_experiment.ipynb`** — trains the full-data model (all 24 images, no held-out split, up to 100 epochs, matching the final deliverable's training regime) and, after every epoch, renders a plain / geometric-TTA / geometric+color-TTA prediction grid on the 6 real test images, for qualitative inspection of how predictions evolve and how much TTA changes them at each stage of training. No validation split means no automatic best-epoch signal here — for a quantitative best-epoch estimate, see the CV ensemble comparison above (~18–21 epochs of a 25-epoch budget, on average).
+
+## Feature & TTA selection (`notebooks/feature_tta_selection.ipynb`)
+
+**Implemented, not yet run** (compute cost: 72 model trainings — see the notebook's own intro cell). Goes beyond the qualitative TTA check above by answering, with real cross-validated evidence: which of the 6 augmentation features to train with, which TTA mode to predict with, and how many epochs to train the final model for.
+
+- **6 augmentation configs** — no-augmentation, the `3_features` baseline, that baseline plus each of the 3 extra features individually (isolating each one's own marginal effect), and the full `6_features` set.
+- **3 TTA modes** — none, geometric-only, geometric+color — evaluated on every trained fold's *validation* images, which (unlike the 6 real test images) have ground truth, so this scores TTA against actual IoU/Dice rather than just a pixel-agreement fraction.
+- **6 folds × 2 seeds** (12 runs per config) — a stronger check against fold-composition noise than the single-seed comparison above.
+- **No permanent per-fold checkpoints** (72 models × ~93MB ≈ 6.7GB — this exact project already hit a disk-space crash once). Results are appended to a resumable JSON log (`outputs/inspection/feature_tta_search.json`) instead, one (seed, config, fold) unit at a time.
+
+Ends with a concrete recommendation — printed by its final cells as a ready-to-run `python scripts/train.py --augment-features ... --epochs ...` command, plus the matching `predict_with_tta()` call for final test-set inference. `scripts/train.py` now accepts `--augment-features FEAT1,FEAT2,...` for exactly this.
 
 ## Workflow
 

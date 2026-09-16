@@ -13,6 +13,7 @@ build/
 
 # Jupyter
 .ipynb_checkpoints/
+jupyter-token.txt
 
 # Outputs (keep directory structure)
 outputs/checkpoints/*
