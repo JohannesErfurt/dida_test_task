@@ -122,3 +122,88 @@ def test_make_cv_train_fn_matches_harness_interface():
     train_fn = make_cv_train_fn(TINY)
     metrics = train_fn(IDS[:4], IDS[4:6])
     assert set(metrics) == {"iou", "dice"}
+
+
+def _patch_evaluate_with_scripted_dice(monkeypatch, dices: list[float]) -> list[float]:
+    """Replace roof_seg.train.evaluate with one returning a scripted Dice sequence,
+    recording a real weight value alongside each call so tests can check *which*
+    epoch's weights `train_model` actually kept.
+    """
+    import roof_seg.train as train_module
+
+    snapshots: list[float] = []
+    calls = {"i": 0}
+
+    def fake_evaluate(model, ids, threshold=0.5, device=None):
+        i = calls["i"]
+        calls["i"] += 1
+        snapshots.append(model.encoder.conv1.weight[0, 0, 0, 0].item())
+        return {"iou": dices[i] / 2, "dice": dices[i]}
+
+    monkeypatch.setattr(train_module, "evaluate", fake_evaluate)
+    return snapshots
+
+
+def test_best_checkpoint_is_kept_not_last_epoch(monkeypatch):
+    """Dice peaks at epoch 2 then declines; the returned model must be epoch 2's, not epoch 4's."""
+    dices = [0.3, 0.6, 0.5, 0.4]
+    snapshots = _patch_evaluate_with_scripted_dice(monkeypatch, dices)
+
+    config = TrainConfig(epochs=4, batch_size=2, early_stopping_patience=0)
+    result = train_model(train_ids=IDS[:4], val_ids=IDS[4:6], config=config, progress=False)
+
+    assert result.best_epoch == 2
+    assert len(result.train_losses) == 4  # ran the full budget (early stopping disabled)
+    final_weight = result.model.encoder.conv1.weight[0, 0, 0, 0].item()
+    assert final_weight == pytest.approx(snapshots[1]), "model should hold epoch 2's weights"
+    assert result.final_val_metrics()["dice"] == pytest.approx(0.6)
+
+
+def test_early_stopping_triggers_after_patience_epochs_without_improvement(monkeypatch):
+    # Improves at epoch 2 (0.6), then 3 non-improving epochs -> stop after epoch 5.
+    dices = [0.5, 0.6, 0.55, 0.55, 0.55, 0.9, 0.9]  # trailing values must never be reached
+    _patch_evaluate_with_scripted_dice(monkeypatch, dices)
+
+    config = TrainConfig(epochs=10, batch_size=2, early_stopping_patience=3)
+    result = train_model(train_ids=IDS[:4], val_ids=IDS[4:6], config=config, progress=False)
+
+    assert result.stopped_early is True
+    assert len(result.train_losses) == 5
+    assert result.best_epoch == 2
+
+
+def test_early_stopping_patience_zero_runs_full_budget_but_still_tracks_best(monkeypatch):
+    dices = [0.5, 0.6, 0.55, 0.55, 0.55, 0.55]
+    _patch_evaluate_with_scripted_dice(monkeypatch, dices)
+
+    config = TrainConfig(epochs=6, batch_size=2, early_stopping_patience=0)
+    result = train_model(train_ids=IDS[:4], val_ids=IDS[4:6], config=config, progress=False)
+
+    assert result.stopped_early is False
+    assert len(result.train_losses) == 6
+    assert result.best_epoch == 2
+
+
+def test_no_val_ids_means_no_best_epoch_tracking():
+    """Final deliverable case: last-epoch weights, no best-checkpoint selection possible."""
+    config = TrainConfig(epochs=2, batch_size=2)
+    result = train_model(train_ids=IDS[:4], config=config, progress=False)
+
+    assert result.best_epoch is None
+    assert result.stopped_early is False
+    assert result.final_val_metrics() == {}
+
+
+def test_checkpoint_records_best_epoch_and_stopped_early(tmp_path, monkeypatch):
+    dices = [0.5, 0.6, 0.55, 0.55, 0.55]
+    _patch_evaluate_with_scripted_dice(monkeypatch, dices)
+
+    config = TrainConfig(epochs=10, batch_size=2, early_stopping_patience=3)
+    result = train_model(train_ids=IDS[:4], val_ids=IDS[4:6], config=config, progress=False)
+
+    path = tmp_path / "ckpt.pt"
+    save_checkpoint(path, result)
+    _, checkpoint = load_checkpoint(path)
+
+    assert checkpoint["best_epoch"] == 2
+    assert checkpoint["stopped_early"] is True

@@ -7,7 +7,11 @@ reserve a validation slice from a dataset this small.
 
 Use `--val-fraction` only for a quick sanity run that reports a metric while
 training -- it shrinks the training set, so it should not produce the
-deliverable checkpoint.
+deliverable checkpoint. Best-checkpoint tracking and early stopping
+(`--early-stopping-patience`) only take effect with `--val-fraction`, since
+they need a validation signal to track improvement against -- the default
+(no split) run always uses the full `--epochs` budget and its last epoch's
+weights, by design (see SPEC §3.7 / roof_seg/train.py).
 """
 
 from __future__ import annotations
@@ -52,12 +56,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-augment", action="store_true", help="Disable §3.5 augmentation.")
     parser.add_argument("--freeze-encoder", action="store_true", help="Train the decoder only.")
     parser.add_argument(
+        "--early-stopping-patience",
+        type=int,
+        default=defaults.early_stopping_patience,
+        help="Stop after this many epochs without val Dice improvement (0 disables early "
+        "stopping but still tracks the best checkpoint). Only has an effect with "
+        "--val-fraction.",
+    )
+    parser.add_argument(
         "--val-fraction",
         type=int,
         default=0,
         metavar="N_FOLDS",
-        help="Sanity-run only: hold out 1/N of the training IDs for per-epoch metrics. "
-        "0 (default) trains on all 24 -- the deliverable checkpoint.",
+        help="Sanity-run only: hold out 1/N of the training IDs for per-epoch metrics, "
+        "best-checkpoint tracking, and early stopping. 0 (default) trains on all 24 with "
+        "no validation -- the deliverable checkpoint.",
     )
     parser.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
     return parser.parse_args()
@@ -78,9 +91,17 @@ def plot_history(result: TrainResult, out_path: Path) -> None:
     if has_val:
         axes[1].plot(epochs, [m["iou"] for m in result.val_metrics], label="IoU")
         axes[1].plot(epochs, [m["dice"] for m in result.val_metrics], label="Dice")
+        if result.best_epoch is not None:
+            axes[1].axvline(
+                result.best_epoch, color="green", linestyle="--", alpha=0.6,
+                label=f"best (epoch {result.best_epoch})",
+            )
         axes[1].set_xlabel("epoch")
         axes[1].set_ylabel("validation metric")
-        axes[1].set_title("Validation (sanity split, not the deliverable setup)")
+        title = "Validation (sanity split, not the deliverable setup)"
+        if result.stopped_early:
+            title += " -- stopped early"
+        axes[1].set_title(title)
         axes[1].set_ylim(0, 1)
         axes[1].legend()
         axes[1].grid(alpha=0.3)
@@ -103,6 +124,7 @@ def main() -> int:
         augment=not args.no_augment,
         freeze_encoder=args.freeze_encoder,
         seed=args.seed,
+        early_stopping_patience=args.early_stopping_patience,
     )
 
     all_ids = get_train_ids()
@@ -131,10 +153,13 @@ def main() -> int:
     plot_history(result, plot_path)
     print(f"Saved training history plot to {plot_path}")
 
+    print(f"Ran {len(result.train_losses)} epoch(s)"
+          + (" (stopped early)" if result.stopped_early else ""))
     print(f"Final train loss: {result.train_losses[-1]:.4f}")
     if result.val_metrics:
-        final = result.final_val_metrics()
-        print(f"Final sanity-split metrics: IoU={final['iou']:.3f} Dice={final['dice']:.3f}")
+        best = result.final_val_metrics()
+        print(f"Best checkpoint: epoch {result.best_epoch} "
+              f"(IoU={best['iou']:.3f} Dice={best['dice']:.3f}) -- these are the weights saved.")
     return 0
 
 

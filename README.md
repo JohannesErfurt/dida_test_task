@@ -77,7 +77,9 @@ Implements SPEC §3.5: `build_train_transform()` returns an Albumentations pipel
 
 Run `python scripts/check_augmentation.py` (or `make check-augmentation`) to verify: masks stay strictly binary after augmentation (24 images × 3 draws each), `RoofTestDataset` has no augmentation hook, and to render `outputs/inspection/augmentation_grid.png` (original | 5 augmented views, mask overlaid) confirming mask geometry tracks the image through every transform.
 
-**Does it actually help?** Checked, not assumed — `make compare-augmentation` runs the §3.4 harness as a paired comparison (6 folds, 25 epochs, identical folds and seed, augmentation the only difference):
+**Does it actually help?** Checked, not assumed — `make compare-augmentation` runs the §3.4 harness as a paired comparison (6 folds, 25 epochs, identical folds and seed, augmentation the only difference).
+
+> **Note:** the numbers below predate best-checkpoint tracking (§3.7) — each fold's score was whatever epoch 25 happened to land on, not that fold's best epoch. Worth re-running now that `train_model()` reports the best-Dice epoch per fold; not yet redone.
 
 | | mean IoU | mean Dice |
 |---|---|---|
@@ -114,6 +116,10 @@ Implements SPEC §3.7. `make train` (or `python scripts/train.py`) trains on **a
 **Hyperparameters** (`TrainConfig`): AdamW, lr 3e-4, weight decay 1e-4, batch size 4, 40 epochs, augmentation on. 3e-4 is a standard fine-tuning rate for a pretrained encoder — enough to adapt ImageNet features to aerial imagery without destroying them. Batch 4 gives 6 steps/epoch over 24 images, keeping BatchNorm statistics usable (batch 1–2 would make them very noisy).
 
 **One implementation, two uses.** The same `train_model()` serves both the CV harness (`make_cv_train_fn()` adapts it to §3.4's `train_fn` interface) and the final checkpoint — so the configuration CV measures is exactly the configuration the deliverable is trained with, with no second code path to drift. The final model trains on all 24 images with **no held-out split**: per SPEC §3.7, CV selects the config beforehand rather than permanently reserving a validation slice from a dataset this small. `--val-fraction N` exists for a quick sanity run that reports per-epoch metrics, but it shrinks the training set and shouldn't produce the deliverable.
+
+**Best-checkpoint tracking and early stopping** (`early_stopping_patience=10`, both wherever a `val_ids` split exists — CV folds and `--val-fraction` runs): whenever val Dice improves, that epoch's weights are snapshotted; `train_model()` returns the **best** snapshot, not whatever the last epoch happened to produce. Validation metrics wobble late in training on 24 images — in an earlier run, val IoU peaked at epoch 13 (0.673) and had *dropped* to 0.598 by epoch 20, so "last epoch" and "best epoch" genuinely aren't the same checkpoint. Training stops once Dice hasn't improved for 10 consecutive epochs (`--early-stopping-patience`, 0 disables the early stop while still tracking the best snapshot). `result.final_val_metrics()` reports the metrics for whichever epoch `result.model` actually holds — the best one, when there's a validation split.
+
+This has **no effect on the deliverable checkpoint**: the final run trains on all 24 images with no held-out split, so there's no validation signal to track improvement against — it always runs the full `epochs` budget and keeps the last epoch's weights, same as before. Improving *that* would mean introducing a held-out slice into the final run too, trading away training data §3.7 deliberately chose to keep.
 
 **Leakage protection:** `scripts/train.py` asserts no `TEST_IDS` reach training, `get_train_ids()` reads only the 24 labeled IDs, and `make_folds()` raises if a test ID enters a fold. Validation data is always loaded with `transform=None`, so held-out images are never augmented — verified by a test that spies on the dataset construction.
 
@@ -236,7 +242,7 @@ make run-cv        # cross-validate the real model (§3.4); MODE=baseline for th
 make compare-augmentation # paired CV: augmentation on vs off, identical folds (slow)
 make check-augmentation # sanity-check the augmentation pipeline (§3.5) + grid figure
 make check-model   # sanity-check the model definition (§3.6) + untrained-prediction figure
-make train         # run training (EPOCHS=50 SEED=42 by default, e.g. make train EPOCHS=10)
+make train         # run training (EPOCHS=40 SEED=42 by default, e.g. make train EPOCHS=10)
 make predict       # run inference on the 6 test images
 make test          # run the test suite with pytest
 make clean         # remove generated outputs (checkpoints, predictions, inspection)
