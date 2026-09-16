@@ -7,10 +7,11 @@ PYTHON     := $(VENV_DIR)/Scripts/python.exe
 PIP        := $(PYTHON) -m pip
 
 SEED       ?= 42
-EPOCHS     ?= 50
+EPOCHS     ?= 40
 CHECKPOINT ?= outputs/checkpoints/best_model.pt
+CV_EPOCHS  ?= 25
 
-.PHONY: help venv install inspect data-convert check-dataset run-cv check-augmentation check-model train predict test clean distclean
+.PHONY: help venv install inspect data-convert check-dataset run-cv compare-augmentation check-augmentation check-model train predict test clean distclean
 
 help:
 	@echo "Targets:"
@@ -19,7 +20,8 @@ help:
 	@echo "  make inspect            run dataset inspection on data/data_org/ (SPEC 3.2)"
 	@echo "  make data-convert       (re)build data/data_convert/ (RGB images + label>128 labels) from data/data_org/"
 	@echo "  make check-dataset      sanity-check the dataset loader (SPEC 3.3) + overlay figure"
-	@echo "  make run-cv             run the CV harness (SPEC 3.4) with placeholder baselines; add COMPARE=1 for a paired comparison"
+	@echo "  make run-cv             cross-validate the real model (SPEC 3.4); MODE=baseline for the fast placeholder floor"
+	@echo "  make compare-augmentation  paired CV comparison: augmentation on vs off, identical folds (slow)"
 	@echo "  make check-augmentation sanity-check the augmentation pipeline (SPEC 3.5) + grid figure"
 	@echo "  make check-model        sanity-check the model definition (SPEC 3.6) + untrained-prediction figure"
 	@echo "  make train              run training (SPEC 3.7); EPOCHS=$(EPOCHS) SEED=$(SEED)"
@@ -48,11 +50,14 @@ check-dataset: venv
 	$(PYTHON) scripts/check_dataset.py --seed $(SEED)
 
 run-cv: venv
-ifdef COMPARE
-	$(PYTHON) scripts/run_cv.py --seed $(SEED) --compare
+ifdef MODE
+	$(PYTHON) scripts/run_cv.py --seed $(SEED) --mode $(MODE)
 else
-	$(PYTHON) scripts/run_cv.py --seed $(SEED)
+	$(PYTHON) scripts/run_cv.py --seed $(SEED) --epochs $(CV_EPOCHS)
 endif
+
+compare-augmentation: venv
+	$(PYTHON) scripts/run_cv.py --seed $(SEED) --mode model --epochs $(CV_EPOCHS) --compare augmentation
 
 check-augmentation: venv
 	$(PYTHON) scripts/check_augmentation.py --seed $(SEED)

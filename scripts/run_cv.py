@@ -1,24 +1,24 @@
-"""Exercise the cross-validation harness (SPEC §3.4).
+"""Run the cross-validation harness (SPEC §3.4).
 
-No real segmentation model exists yet (that's §3.6/§3.7), so this script
-demonstrates the harness end-to-end with two trivial, no-learning baseline
-predictors instead -- both plug into the exact same
-roof_seg.cross_validation.cross_validate() / paired_compare() functions the
-real model will use later, so nothing here needs to change once it exists:
+Two modes:
 
-  - "spatial-prior": predicts the pixels most frequently marked as roof
-    across the training fold (a fixed mask, independent of the validation
-    image's actual content), sized to match the training fold's average
-    roof-area fraction.
-  - "centered-square": predicts a single square block centered in the frame,
-    sized to match the same area fraction. A different placeholder, used
-    only so --compare has two distinguishable configs to demonstrate the
-    paired-comparison mechanism on.
+  - `--mode model` (default): cross-validates the **real** U-Net (§3.6)
+    trained by §3.7, one model per fold. This is the harness doing its
+    actual job -- e.g. `--compare augmentation` answers §3.5's deferred
+    question (does augmentation help?) as a paired comparison on identical
+    folds and seed.
 
-Neither is a real baseline worth reporting as "how good is roof
-segmentation" -- they exist purely to prove the harness (fold isolation,
-metric aggregation, paired comparison) works correctly before the real
-model is built.
+  - `--mode baseline`: the original no-learning placeholders, kept because
+    they cost seconds rather than minutes and still serve as a sanity floor
+    to compare the trained model against:
+      * "spatial-prior" -- the pixels most frequently marked as roof across
+        the training fold, sized to that fold's average roof-area fraction;
+      * "centered-square" -- a fixed centered block of the same area.
+    Neither learns anything; they exist to bound "how good is trivial?".
+
+Nothing in roof_seg/cross_validation.py changed to support the real model --
+`train_fn` was always model-agnostic, and roof_seg.train.make_cv_train_fn()
+just supplies a different one.
 """
 
 from __future__ import annotations
@@ -38,21 +38,30 @@ from roof_seg.cross_validation import CVResult, cross_validate, paired_compare  
 from roof_seg.dataset import load_binary_mask  # noqa: E402
 from roof_seg.metrics import dice_score, iou_score  # noqa: E402
 from roof_seg.seed import set_seed  # noqa: E402
+from roof_seg.train import TrainConfig, make_cv_train_fn  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Run (or paired-compare) the CV harness with placeholder baselines.",
-    )
+    parser = argparse.ArgumentParser(description="Run (or paired-compare) the CV harness.")
     parser.add_argument("--seed", type=int, default=RANDOM_SEED)
     parser.add_argument(
         "--n-folds", type=int, default=6,
         help="Number of CV folds (default: 6). Use 24 for leave-one-out.",
     )
     parser.add_argument(
-        "--compare", action="store_true",
-        help="Run both baselines on identical folds/seed and report the paired difference "
-        "(default: run just the spatial-prior baseline).",
+        "--mode", choices=["model", "baseline"], default="model",
+        help="'model' cross-validates the real U-Net (slow: trains one model per fold); "
+        "'baseline' runs the no-learning placeholders (seconds).",
+    )
+    parser.add_argument(
+        "--epochs", type=int, default=TrainConfig().epochs,
+        help="Epochs per fold in --mode model.",
+    )
+    parser.add_argument(
+        "--compare", choices=["augmentation", "baselines"], default=None,
+        help="Paired comparison on identical folds/seed: 'augmentation' trains with vs "
+        "without §3.5 augmentation (--mode model); 'baselines' compares the two "
+        "placeholders (--mode baseline).",
     )
     return parser.parse_args()
 
@@ -97,31 +106,58 @@ def print_result(label: str, result: CVResult) -> None:
     print(f"  mean Dice = {summary['dice']['mean']:.3f} +/- {summary['dice']['std']:.3f}")
 
 
+def print_paired_difference(label_a: str, label_b: str, result_a: CVResult, result_b: CVResult) -> None:
+    print(f"\n=== Paired difference ({label_a} minus {label_b}) ===")
+    for metric in ("iou", "dice"):
+        diffs = [a - b for a, b in zip(result_a.values(metric), result_b.values(metric))]
+        wins = sum(d > 0 for d in diffs)
+        print(f"  {metric}: mean diff = {np.mean(diffs):+.3f}, "
+              f"{label_a} better on {wins}/{len(diffs)} folds, per-fold = "
+              f"{[f'{d:+.3f}' for d in diffs]}")
+    print("\n  Reminder (SPEC §3.4): at N=24 treat differences below roughly 0.05-0.10 "
+          "as noise rather than a real effect.")
+
+
 def main() -> int:
     args = parse_args()
     set_seed(args.seed)
 
-    print("NOTE: no real segmentation model exists yet (SPEC §3.6/§3.7). This run uses "
-          "placeholder, no-learning baselines purely to exercise the CV harness end-to-end.")
-
-    if not args.compare:
-        result = cross_validate(spatial_prior_baseline, n_folds=args.n_folds, seed=args.seed)
-        print_result("spatial-prior baseline", result)
+    if args.mode == "baseline":
+        print("Mode: no-learning placeholder baselines (a sanity floor, not a real model).")
+        if args.compare == "augmentation":
+            raise SystemExit("--compare augmentation requires --mode model")
+        if args.compare == "baselines":
+            result_a, result_b = paired_compare(
+                spatial_prior_baseline, centered_square_baseline,
+                n_folds=args.n_folds, seed=args.seed,
+            )
+            print_result("spatial-prior baseline", result_a)
+            print_result("centered-square baseline", result_b)
+            print_paired_difference("spatial-prior", "centered-square", result_a, result_b)
+        else:
+            result = cross_validate(spatial_prior_baseline, n_folds=args.n_folds, seed=args.seed)
+            print_result("spatial-prior baseline", result)
         return 0
 
-    result_a, result_b = paired_compare(
-        spatial_prior_baseline, centered_square_baseline,
-        n_folds=args.n_folds, seed=args.seed,
-    )
-    print_result("spatial-prior baseline", result_a)
-    print_result("centered-square baseline", result_b)
+    print(f"Mode: real U-Net (§3.6) trained per fold for {args.epochs} epochs -- this is slow.")
 
-    print(f"\n=== Paired difference (spatial-prior minus centered-square) ===")
-    for metric in ("iou", "dice"):
-        diffs = [a - b for a, b in zip(result_a.values(metric), result_b.values(metric))]
-        print(f"  {metric}: mean diff = {np.mean(diffs):+.3f}, per-fold = "
-              f"{[f'{d:+.3f}' for d in diffs]}")
+    if args.compare == "baselines":
+        raise SystemExit("--compare baselines requires --mode baseline")
 
+    if args.compare == "augmentation":
+        with_aug = make_cv_train_fn(TrainConfig(epochs=args.epochs, augment=True, seed=args.seed))
+        without_aug = make_cv_train_fn(TrainConfig(epochs=args.epochs, augment=False, seed=args.seed))
+        result_a, result_b = paired_compare(
+            with_aug, without_aug, n_folds=args.n_folds, seed=args.seed
+        )
+        print_result("U-Net WITH augmentation", result_a)
+        print_result("U-Net WITHOUT augmentation", result_b)
+        print_paired_difference("with-aug", "without-aug", result_a, result_b)
+        return 0
+
+    train_fn = make_cv_train_fn(TrainConfig(epochs=args.epochs, seed=args.seed))
+    result = cross_validate(train_fn, n_folds=args.n_folds, seed=args.seed)
+    print_result(f"U-Net (resnet34), {args.epochs} epochs", result)
     return 0
 
 

@@ -58,10 +58,10 @@ Run `python scripts/check_dataset.py` (or `make check-dataset`) to sanity-check 
 Implements SPEC §3.4. **Why it exists:** with only 24 labeled images, a single fixed train/val split (e.g. 19/5) is too high-variance to trust — which handful of images land in validation can swing IoU/Dice by more than the effect of whatever is actually being compared (augmentation on/off, loss choice, etc.). Cross-validation averages over all 24 images instead, and — used as a **paired comparison** (identical folds and seed, only one setting changed) — isolates a real effect from fold-composition noise far better than eyeballing two independent numbers.
 
 - **`make_folds(ids, n_folds, seed)`** — deterministic k-fold split; every ID validates exactly once. `n_folds == 24` gives leave-one-out CV (affordable here given how small/fast each fold's training is). Raises if any `TEST_IDS` leak in.
-- **`cross_validate(train_fn, n_folds, seed)`** — runs `train_fn(train_ids, val_ids) -> {metric: value}` once per fold and returns a `CVResult` with `.mean(metric)` / `.std(metric)` / `.summary()`. `train_fn` is fully decoupled from any specific model — once §3.6/§3.7's real segmentation model exists, its train/eval logic plugs in here unchanged.
+- **`cross_validate(train_fn, n_folds, seed)`** — runs `train_fn(train_ids, val_ids) -> {metric: value}` once per fold and returns a `CVResult` with `.mean(metric)` / `.std(metric)` / `.summary()`. `train_fn` is fully decoupled from any specific model — §3.7's `make_cv_train_fn()` supplies one that trains the real U-Net, and nothing in `cross_validation.py` had to change to support it.
 - **`paired_compare(train_fn_a, train_fn_b, ...)`** — runs two configs on identical folds/seed for a sensitive, noise-isolated comparison.
 
-**Demo (`scripts/run_cv.py` / `make run-cv`):** no real model exists yet (§3.6/§3.7), so this exercises the harness end-to-end with two trivial, no-learning baselines instead — `spatial-prior` (predicts the pixels most often marked as roof across the training fold) and `centered-square` (a fixed centered block, same area fraction). Neither is a meaningful "how good is roof segmentation" number; they exist only to prove the harness works before the real model is built.
+**Running it (`scripts/run_cv.py` / `make run-cv`):** `--mode model` (default) cross-validates the real U-Net, training one model per fold — that's what `make compare-augmentation` uses to answer §3.5's augmentation question on identical folds. `--mode baseline` keeps the original no-learning placeholders (`spatial-prior`, `centered-square`); they cost seconds instead of minutes and are retained as a sanity floor — "how good is trivial?" — to compare the trained model against.
 
 Results (`make run-cv`, 6-fold, seed 42): spatial-prior baseline scores mean IoU 0.187 ± 0.020, Dice 0.309 ± 0.031. Paired comparison (`make run-cv COMPARE=1`) against the centered-square baseline on the *same* folds: mean IoU difference +0.005 (per-fold range −0.060 to +0.057), Dice difference +0.013 — i.e. **no detectable difference** between the two placeholders, which is the expected/correct outcome (they're both naive area-matched guesses) and demonstrates the harness's paired comparison is sensitive to real per-fold variation without over-claiming a winner from noise.
 
@@ -94,6 +94,22 @@ Why this architecture, for this task:
 `build_model()` also **asserts the encoder's expected normalization matches `config.IMAGENET_MEAN/STD`** (what `roof_seg/dataset.py` actually applies). Swapping in an encoder pretrained with different statistics — e.g. `inceptionv4`, which expects mean/std of 0.5 — is a one-line change whose only symptom would be a quietly worse model, so it raises instead of silently mis-normalizing.
 
 Run `python scripts/check_model.py` (or `make check-model`) to verify shapes, that outputs really are logits, that the encoder weights are genuinely pretrained (vs. random init), and that `freeze_encoder` works — and to render `outputs/inspection/model_untrained_prediction.png`, an untrained-model "before" reference to compare §3.7's trained output against.
+
+## Training (`roof_seg/train.py`, `roof_seg/losses.py`)
+
+Implements SPEC §3.7. `make train` (or `python scripts/train.py`) trains on **all 24 labeled pairs** and writes `outputs/checkpoints/best_model.pt` plus `outputs/inspection/training_history.png`.
+
+**Loss — BCE + soft Dice** (`roof_seg/losses.py`), both computed on logits. Roof pixels are only 5–28% of a frame, so plain BCE — averaged uniformly over pixels — lets the ~86% background dominate the gradient and can look "low loss, mediocre roofs". Dice measures region overlap instead, so correctly-predicted background contributes almost nothing to it, which makes it imbalance-insensitive and aligned with the reported metric; but on its own its gradients are poorly conditioned early, when predictions are near-zero and the intersection term is ~0. Summing them gets BCE's stable optimization plus Dice's pressure toward overlap. Dice is averaged **per sample**, not over a pooled batch, so a large-roof tile can't drown out a small-roof one.
+
+**Hyperparameters** (`TrainConfig`): AdamW, lr 3e-4, weight decay 1e-4, batch size 4, 40 epochs, augmentation on. 3e-4 is a standard fine-tuning rate for a pretrained encoder — enough to adapt ImageNet features to aerial imagery without destroying them. Batch 4 gives 6 steps/epoch over 24 images, keeping BatchNorm statistics usable (batch 1–2 would make them very noisy).
+
+**One implementation, two uses.** The same `train_model()` serves both the CV harness (`make_cv_train_fn()` adapts it to §3.4's `train_fn` interface) and the final checkpoint — so the configuration CV measures is exactly the configuration the deliverable is trained with, with no second code path to drift. The final model trains on all 24 images with **no held-out split**: per SPEC §3.7, CV selects the config beforehand rather than permanently reserving a validation slice from a dataset this small. `--val-fraction N` exists for a quick sanity run that reports per-epoch metrics, but it shrinks the training set and shouldn't produce the deliverable.
+
+**Leakage protection:** `scripts/train.py` asserts no `TEST_IDS` reach training, `get_train_ids()` reads only the 24 labeled IDs, and `make_folds()` raises if a test ID enters a fold. Validation data is always loaded with `transform=None`, so held-out images are never augmented — verified by a test that spies on the dataset construction.
+
+**Final run** (`make train`, 40 epochs, all 24 images): loss 1.52 → 0.198, converging smoothly (`outputs/inspection/training_history.png`). The checkpoint scores IoU 0.90 / Dice 0.95 **on its own training data** — that is a measure of fit, *not* generalization, and is reported only as evidence the model has the capacity to fit this task. The honest generalization estimate comes from cross-validation (§3.4/§3.8), where each model is scored on images it never saw.
+
+An earlier sanity run (20 epochs, 4 images held out) climbed from IoU 0.14 to ~0.60–0.67, against the ~0.19 no-learning baseline from §3.4 — the model is clearly learning, and the fold-to-fold wobble in that range is exactly the small-N variance §3.4 was built to average over.
 
 ## Workflow
 
@@ -129,7 +145,9 @@ dida_test_task/
 │   ├── metrics.py           # IoU / Dice
 │   ├── cross_validation.py  # Fold splitter, CV runner, paired comparison (§3.4)
 │   ├── augmentation.py      # build_train_transform: flips, 90° rotation, color jitter (§3.5)
-│   └── model.py             # build_model: U-Net + pretrained ResNet34 encoder (§3.6)
+│   ├── model.py             # build_model: U-Net + pretrained ResNet34 encoder (§3.6)
+│   ├── losses.py            # BCE + soft Dice, for class imbalance (§3.7)
+│   └── train.py             # train_model, checkpointing, CV glue (§3.7)
 ├── scripts/
 │   ├── inspect_data.py         # Data quality analysis on data_org/ (§3.2)
 │   ├── build_data_convert.py   # Build data_convert/ from data_org/ + comparison figure
@@ -146,7 +164,9 @@ dida_test_task/
 │   ├── test_cross_validation.py # roof_seg.cross_validation unit tests (§3.4)
 │   ├── test_run_cv.py          # scripts/run_cv.py baseline integration tests
 │   ├── test_augmentation.py    # roof_seg.augmentation unit tests (§3.5)
-│   └── test_model.py           # roof_seg.model unit tests (§3.6)
+│   ├── test_model.py           # roof_seg.model unit tests (§3.6)
+│   ├── test_losses.py          # roof_seg.losses unit tests (§3.7)
+│   └── test_train.py           # roof_seg.train unit tests (§3.7)
 ├── notebooks/               # Exploratory notebooks
 ├── outputs/
 │   ├── checkpoints/         # Saved model weights
@@ -202,7 +222,8 @@ make install       # create .venv and install dependencies + roof_seg package
 make inspect       # run dataset inspection on data/data_org/
 make data-convert  # (re)build data/data_convert/ (RGB images + label>128 labels) from data/data_org/
 make check-dataset # sanity-check the dataset loader (§3.3) + overlay figure
-make run-cv        # run the CV harness (§3.4); add COMPARE=1 for a paired comparison
+make run-cv        # cross-validate the real model (§3.4); MODE=baseline for the fast placeholder floor
+make compare-augmentation # paired CV: augmentation on vs off, identical folds (slow)
 make check-augmentation # sanity-check the augmentation pipeline (§3.5) + grid figure
 make check-model   # sanity-check the model definition (§3.6) + untrained-prediction figure
 make train         # run training (EPOCHS=50 SEED=42 by default, e.g. make train EPOCHS=10)
@@ -255,7 +276,7 @@ See the [acceptance checklist in SPEC.md](SPEC.md#4-acceptance-checklist-final-r
 | 3.4 Cross-validation harness | Done |
 | 3.5 Augmentation | Done |
 | 3.6 Model | Done |
-| 3.7 Training | Not started |
+| 3.7 Training | Done |
 | 3.8 Internal evaluation | Not started |
 | 3.9 Test inference | Not started |
 | 3.10 Documentation | Not started |

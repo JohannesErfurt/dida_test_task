@@ -217,12 +217,14 @@ mask = 255 * (label > 128).astype(np.uint8)
 - Training length defined (epochs and/or early stopping).
 - The **final deliverable checkpoint** is trained on all 24 images (no held-out fold) — CV (§3.4) is used to *select* the config beforehand, not to reserve a permanent validation slice from a dataset this small.
 
+**Chosen configuration** (`roof_seg/train.py::TrainConfig`): loss **BCE + soft Dice** (per-sample Dice averaging), optimizer **AdamW** at **lr 3e-4**, weight decay **1e-4**, batch size **4** (6 steps/epoch over 24 images — keeps BatchNorm statistics usable), **40 epochs** as a fixed budget rather than early stopping, since the final model trains on all 24 images with no validation split to early-stop against.
+
 **Done when:**
 
-- [ ] Training runs to completion without errors on all 24 train pairs.
-- [ ] A model checkpoint is saved to disk.
-- [ ] Training loss is logged or plotted.
-- [ ] No test-set images (`278`, `535`, `537`, `539`, `551`, `553`) appear in training or in any CV fold.
+- [x] Training runs to completion without errors on all 24 train pairs — 40 epochs, loss 1.52 -> 0.198.
+- [x] A model checkpoint is saved to disk: `outputs/checkpoints/best_model.pt`, storing weights plus the `TrainConfig` and train IDs that produced it so §3.9 can rebuild the same architecture.
+- [x] Training loss is logged or plotted — per-epoch to stdout and to `outputs/inspection/training_history.png`.
+- [x] No test-set images (`278`, `535`, `537`, `539`, `551`, `553`) appear in training or in any CV fold — asserted in `scripts/train.py`, enforced by `get_train_ids()` and `make_folds()`, and covered by tests.
 
 ---
 
@@ -340,5 +342,5 @@ Record the chosen option in the write-up when decided:
 | Mismatched pairs | Keep / drop / relabel | **Decided: drop `278`'s label** (deleted; image moved into `TEST_IDS`) — see [DATA_REPORT.md §3](DATA_REPORT.md#3-duplicate--inconsistent-labels--278s-label-is-wrong) | §3.2 |
 | Validation strategy | k-fold CV vs LOOCV vs fixed hold-out | **Decided: cross-validation (k-fold or LOOCV) via the §3.4 harness**, not a fixed hold-out — a single ~5-image split is too high-variance at N=24 to trust for comparisons | §3.4 |
 | Model | U-Net vs DeepLabV3+ | **Decided: U-Net + ResNet34 (ImageNet) via `smp`** — see `roof_seg/model.py` docstring for the reasoning | §3.6 |
-| Loss | BCE, Dice, BCE+Dice | BCE + Dice — confirm via §3.4 CV if compared against Dice-only | §3.7 |
+| Loss | BCE, Dice, BCE+Dice | **Decided: BCE + soft Dice** (`roof_seg/losses.py`); `build_loss()` also exposes bce/dice alone so §3.4 can compare them | §3.7 |
 | Threshold | 0.5 vs tuned on val | 0.5 default; tune if CV suggests otherwise | §3.9 |
