@@ -7,7 +7,7 @@ PYTHON     := $(VENV_DIR)/Scripts/python.exe
 PIP        := $(PYTHON) -m pip
 
 SEED       ?= 42
-EPOCHS     ?= 40
+EPOCHS     ?= 25  # matches notebooks/feature_tta_selection.ipynb's recommendation for the deliverable checkpoint
 CHECKPOINT ?= outputs/checkpoints/best_model.pt
 CV_EPOCHS  ?= 25
 

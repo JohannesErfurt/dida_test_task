@@ -186,7 +186,7 @@ mask = 255 * (label > 128).astype(np.uint8)
 - [x] Augmentation pipeline is implemented (Albumentations) and listed in the write-up — see README.md's "Data augmentation" section.
 - [x] Whether augmentation actually helps is checked with the §3.4 CV harness (paired on/off comparison), not assumed. **Run** (`make compare-augmentation`, 6 folds, 25 epochs, seed 42): with-aug IoU 0.697 ± 0.050 vs without-aug 0.664 ± 0.061 — a paired difference of **+0.033 IoU** (+0.028 Dice), better on 4/6 folds. That is *below* the 0.05–0.10 noise threshold this SPEC set in advance, so the result is **suggestive, not established**. Augmentation is kept on (point estimate favours it, lower fold-to-fold variance, well-motivated at N=24, free at inference, no evidence of harm) — but the evidence is recorded as inconclusive rather than overclaimed. See README.md's "Data augmentation" section.
 - [x] **Re-run with best-checkpoint tracking** (`scripts/compare_augmentation_ensemble.py`, same 6 folds/seed=42, 25 epochs, patience 10, each fold's *best*-Dice epoch checkpointed): `no_augmentation` IoU 0.705 ± 0.016, the original 3-feature set (`flip`, `rotate90`, `color_jitter`) IoU 0.712 ± 0.039, and an extended 6-feature set (+ `rgb_gamma`, `perspective`, `resized_crop`) IoU 0.717 ± 0.033. All pairwise differences (~0.007–0.012 IoU) are still well below the 0.05–0.10 noise threshold — confirms the earlier "suggestive, not established" read rather than resolving it. Kept the 3-feature set as the trained default (`DEFAULT_FEATURES` in `roof_seg/augmentation.py`): the 6-feature set shows no real advantage over it at this sample size, and the extra 3 features (perspective/crop especially) are more aggressive transforms not worth the added complexity without stronger evidence. Qualitative check: 6-fold-ensemble majority-vote predictions on the 6 test images look near-identical across all three configs (see comparison grid `outputs/inspection/augmentation_ensemble_comparison.png`), consistent with the small quantitative gap.
-- [ ] **`notebooks/feature_tta_selection.ipynb` (implemented, not yet run):** a more thorough joint search — 6 augmentation configs (no-aug, 3-feature baseline, baseline+each of the 3 extra features individually, 6-feature) × 3 TTA modes (none, geometric, geometric+color) × 6 folds × 2 seeds (12 runs/config, vs. 6 in the run above). Unlike the qualitative TTA check in §3.9, TTA modes here are scored against real ground truth (the CV validation folds have labels, the real test set doesn't). Ends with a concrete recommendation: which augmentation feature set, which TTA mode, and how many epochs to train the final deliverable for — see its final two cells for the exact `scripts/train.py` command to run. Not yet executed (compute cost: 72 model trainings) — results pending.
+- [x] **`notebooks/feature_tta_selection.ipynb` (run):** a more thorough joint search — 6 augmentation configs (no-aug, 3-feature baseline, baseline+each of the 3 extra features individually, 6-feature) × 3 TTA modes (none, geometric, geometric+color) × 6 folds × 2 seeds (12 runs/config, vs. 6 in the run above). Unlike the qualitative TTA check in §3.9, TTA modes here are scored against real ground truth (the CV validation folds have labels, the real test set doesn't). **Result:** best cell is `3_features` + geometric+color TTA (mean IoU 0.745), but that's only +0.002 IoU over the `3_features` + geometric-only baseline (0.743 ± 0.036) — well under the 0.05–0.10 noise threshold, so the recommendation keeps the simpler baseline. Final recommendation: augmentation = `flip, rotate90, color_jitter`, TTA = geometric-only (`DIHEDRAL_TRANSFORMS`, `color_variants=None`), epochs = 25 (mean best-epoch 21.7 + 15% margin). See README.md's "Feature & TTA selection" section for the full results grid. This exact config produced the deliverable checkpoint (§3.7) and test predictions (§3.9).
 
 ---
 
@@ -219,11 +219,11 @@ mask = 255 * (label > 128).astype(np.uint8)
 - Training length defined (epochs and/or early stopping).
 - The **final deliverable checkpoint** is trained on all 24 images (no held-out fold) — CV (§3.4) is used to *select* the config beforehand, not to reserve a permanent validation slice from a dataset this small.
 
-**Chosen configuration** (`roof_seg/train.py::TrainConfig`): loss **BCE + soft Dice** (per-sample Dice averaging), optimizer **AdamW** at **lr 3e-4**, weight decay **1e-4**, batch size **4** (6 steps/epoch over 24 images — keeps BatchNorm statistics usable), **40 epochs** as a fixed budget rather than early stopping, since the final model trains on all 24 images with no validation split to early-stop against.
+**Chosen configuration** (`roof_seg/train.py::TrainConfig`): loss **BCE + soft Dice** (per-sample Dice averaging), optimizer **AdamW** at **lr 3e-4**, weight decay **1e-4**, batch size **4** (6 steps/epoch over 24 images — keeps BatchNorm statistics usable). `TrainConfig`'s own default is `epochs=40` as a generic fixed budget, but the **final deliverable checkpoint** uses the §3.5 `feature_tta_selection.ipynb` recommendation instead: `--epochs 25 --augment-features flip,rotate90,color_jitter` (mean best-epoch 21.7 across the CV search + 15% margin, no early stopping available on the full-data run) — see README.md's "Feature & TTA selection" section.
 
 **Done when:**
 
-- [x] Training runs to completion without errors on all 24 train pairs — 40 epochs, loss 1.52 -> 0.198.
+- [x] Training runs to completion without errors on all 24 train pairs — **actual deliverable run:** `python scripts/train.py --epochs 25 --augment-features flip,rotate90,color_jitter`, final train loss **0.3746**.
 - [x] A model checkpoint is saved to disk: `outputs/checkpoints/best_model.pt`, storing weights plus the `TrainConfig` and train IDs that produced it so §3.9 can rebuild the same architecture.
 - [x] Training loss is logged or plotted — per-epoch to stdout and to `outputs/inspection/training_history.png`.
 - [x] No test-set images (`278`, `535`, `537`, `539`, `551`, `553`) appear in training or in any CV fold — asserted in `scripts/train.py`, enforced by `get_train_ids()` and `make_folds()`, and covered by tests.
@@ -241,9 +241,9 @@ mask = 255 * (label > 128).astype(np.uint8)
 
 **Done when:**
 
-- [ ] Metric is computed via the §3.4 cross-validation harness across the 24 labels (mean ± std across folds), not a single fixed split.
-- [ ] Metric value(s) and evaluation protocol (fold count, LOOCV vs k-fold, seed) are recorded in the write-up.
-- [ ] At least one side-by-side visualization exists: input | ground truth | prediction (on a CV validation sample).
+- [x] Metric is computed via the §3.4 cross-validation harness across the 24 labels (mean ± std across folds), not a single fixed split. **Run** (`scripts/evaluate_cv.py`, final config: `flip`, `rotate90`, `color_jitter`, 6-fold, seed 42, best-Dice checkpoint per fold): mean **IoU 0.7165 ± 0.0419**, mean **Dice 0.8319 ± 0.0306** across folds (per-fold IoU 0.637–0.761, Dice 0.772–0.863; fold 1 stopped early at epoch 10/20, all others ran to 20–25 epochs).
+- [x] Metric value(s) and evaluation protocol (fold count, LOOCV vs k-fold, seed) are recorded in the write-up — see numbers above; protocol is 6-fold CV (not LOOCV), seed 42, matching the §3.4/3.5 comparisons.
+- [x] At least one side-by-side visualization exists: input | ground truth | prediction (on a CV validation sample) — `outputs/inspection/cv_validation_grid.png`, all 24 training images, each shown from its own fold's held-out prediction.
 
 ---
 
@@ -260,15 +260,15 @@ mask = 255 * (label > 128).astype(np.uint8)
 
 **Done when:**
 
-- [ ] Prediction files exist:
+- [x] Prediction files exist:
   - `outputs/predictions/278.png`
   - `outputs/predictions/535.png`
   - `outputs/predictions/537.png`
   - `outputs/predictions/539.png`
   - `outputs/predictions/551.png`
   - `outputs/predictions/553.png`
-- [ ] Each output is 256×256, grayscale or binary PNG (white = roof, black = background).
-- [ ] Optional overlay images exist for visual inspection (recommended).
+- [x] Each output is 256×256, grayscale or binary PNG (white = roof, black = background).
+- [x] Optional overlay images exist for visual inspection (recommended) — `outputs/predictions/{id}_overlay.png`, produced by `scripts/predict.py` (geometric-only TTA, threshold 0.5, red mask over the original RGB image).
 
 **Test-time augmentation (optional, implemented):** `roof_seg/tta.py` provides `predict_with_tta()`, averaging sigmoid probability maps over two view families: (1) the 8-element dihedral group (horizontal flip × 90° rotation) — the same transform family already verified mask-safe as an exact pixel permutation for training augmentation (§3.5), each view's prediction mapped back to original pixel coordinates exactly (no interpolation); and (2) optional color views (`DEFAULT_COLOR_VARIANTS` — fixed brightness/gamma perturbations), which need no inverse mapping since they never move a pixel, only its value. Perspective and RandomResizedCrop are deliberately excluded from TTA: both need resampling, so an exact per-pixel inverse for their predictions isn't recoverable — the same reason they need `cv2.INTER_NEAREST` to stay mask-safe as *training* augmentations.
 
@@ -295,10 +295,10 @@ Checked qualitatively (`scripts/check_tta.py`, `outputs/checkpoints/best_model.p
 
 **Done when:**
 
-- [ ] README (or `REPORT.md`) contains setup, train, and inference commands.
-- [ ] Write-up addresses all eight points above (including data inspection summary).
-- [ ] A reviewer can reproduce predictions by following the documented steps.
-- [ ] Deliverable bundle is ready to send: prediction PNGs + write-up (+ code/repo link).
+- [x] README (or `REPORT.md`) contains setup, train, and inference commands — see README.md's "Setup" and "Usage" sections.
+- [x] Write-up addresses all eight points above (including data inspection summary): (1) README "Goal"/"Dataset"; (2) `DATA_REPORT.md` + README "Dataset"; (3) README "Cross-validation harness"; (4) README "Model"; (5) README "Data augmentation" (CV-evidenced) and "Model" (transfer learning rationale); (6) README "Training"; (7) README "Internal evaluation" (§3.8 CV mean ± std + `cv_validation_grid.png`); (8) README "Known limitations".
+- [x] A reviewer can reproduce predictions by following the documented steps — README "Usage" gives the exact command sequence (inspect → build data → train → evaluate → predict).
+- [x] Deliverable bundle is ready to send: prediction PNGs + write-up (+ code/repo link) — `outputs/predictions/{id}.png` + `{id}_overlay.png` for all 6 test images, plus README/DATA_REPORT/SPEC as the write-up.
 
 ---
 
@@ -309,16 +309,16 @@ Before submission, confirm:
 | # | Check | Pass |
 |---|---|---|
 | 1 | Data inspection completed; findings documented (alpha, label quirks, binarization rule) | ☑ |
-| 2 | 24 train pairs used (`278`'s wrong label dropped); 6 test images never seen during training or CV | ☐ |
-| 3 | Cross-validation harness built and used for at least one paired comparison (e.g. augmentation on/off) | ☐ |
-| 4 | Pretrained segmentation model with documented architecture | ☐ |
-| 5 | Data augmentation applied during training, validated via CV rather than assumed | ☐ |
-| 6 | Labels binarized consistently (per inspection decision) | ☐ |
-| 7 | Checkpoint saved and reloadable | ☐ |
-| 8 | 6 prediction PNGs exported | ☐ |
-| 9 | Internal validation metric (CV mean ± std) or qualitative eval documented | ☐ |
-| 10 | Write-up explains *what* and *why* | ☐ |
-| 11 | End-to-end reproducible from documented commands | ☐ |
+| 2 | 24 train pairs used (`278`'s wrong label dropped); 6 test images never seen during training or CV | ☑ |
+| 3 | Cross-validation harness built and used for at least one paired comparison (e.g. augmentation on/off) | ☑ |
+| 4 | Pretrained segmentation model with documented architecture | ☑ |
+| 5 | Data augmentation applied during training, validated via CV rather than assumed | ☑ |
+| 6 | Labels binarized consistently (per inspection decision) | ☑ |
+| 7 | Checkpoint saved and reloadable | ☑ |
+| 8 | 6 prediction PNGs exported | ☑ |
+| 9 | Internal validation metric (CV mean ± std) or qualitative eval documented | ☑ |
+| 10 | Write-up explains *what* and *why* | ☑ |
+| 11 | End-to-end reproducible from documented commands | ☑ |
 
 ---
 

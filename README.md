@@ -123,7 +123,7 @@ Implements SPEC §3.7. `make train` (or `python scripts/train.py`) trains on **a
 
 **Loss — BCE + soft Dice** (`roof_seg/losses.py`), both computed on logits. Roof pixels are only 5–28% of a frame, so plain BCE — averaged uniformly over pixels — lets the ~86% background dominate the gradient and can look "low loss, mediocre roofs". Dice measures region overlap instead, so correctly-predicted background contributes almost nothing to it, which makes it imbalance-insensitive and aligned with the reported metric; but on its own its gradients are poorly conditioned early, when predictions are near-zero and the intersection term is ~0. Summing them gets BCE's stable optimization plus Dice's pressure toward overlap. Dice is averaged **per sample**, not over a pooled batch, so a large-roof tile can't drown out a small-roof one.
 
-**Hyperparameters** (`TrainConfig`): AdamW, lr 3e-4, weight decay 1e-4, batch size 4, 40 epochs, augmentation on. 3e-4 is a standard fine-tuning rate for a pretrained encoder — enough to adapt ImageNet features to aerial imagery without destroying them. Batch 4 gives 6 steps/epoch over 24 images, keeping BatchNorm statistics usable (batch 1–2 would make them very noisy). `--augment-features FEAT1,FEAT2,...` selects a specific subset of `roof_seg.augmentation.ALL_FEATURES` (defaults to `DEFAULT_FEATURES` if omitted) — the exact knob `notebooks/feature_tta_selection.ipynb`'s final recommendation prints a ready-to-run command for.
+**Hyperparameters** (`TrainConfig`): AdamW, lr 3e-4, weight decay 1e-4, batch size 4, augmentation on. `epochs` defaults to 40, but the **deliverable checkpoint** overrides this to **25** (`--epochs 25`), per `notebooks/feature_tta_selection.ipynb`'s recommendation (see "Feature & TTA selection" below). 3e-4 is a standard fine-tuning rate for a pretrained encoder — enough to adapt ImageNet features to aerial imagery without destroying them. Batch 4 gives 6 steps/epoch over 24 images, keeping BatchNorm statistics usable (batch 1–2 would make them very noisy). `--augment-features FEAT1,FEAT2,...` selects a specific subset of `roof_seg.augmentation.ALL_FEATURES` (defaults to `DEFAULT_FEATURES` — `flip, rotate90, color_jitter` — if omitted); the deliverable checkpoint uses that default explicitly via `--augment-features flip,rotate90,color_jitter`.
 
 **One implementation, two uses.** The same `train_model()` serves both the CV harness (`make_cv_train_fn()` adapts it to §3.4's `train_fn` interface) and the final checkpoint — so the configuration CV measures is exactly the configuration the deliverable is trained with, with no second code path to drift. The final model trains on all 24 images with **no held-out split**: per SPEC §3.7, CV selects the config beforehand rather than permanently reserving a validation slice from a dataset this small. `--val-fraction N` exists for a quick sanity run that reports per-epoch metrics, but it shrinks the training set and shouldn't produce the deliverable.
 
@@ -137,7 +137,9 @@ This has **no effect on the deliverable checkpoint**: the final run trains on al
 
 Run: epoch 1 predicts almost the entire frame as roof (the model hasn't learned "roof" yet, just "probably foreground"); by epoch 6 it has already snapped onto the actual building outlines; epochs 6→40 mostly sharpen boundaries and shed false positives on roads/driveways (clearest on `278` and `537`, where an early diagonal road misprediction disappears). Saved checkpoint is bit-for-bit the same training run as `scripts/train.py`'s default (same seed, same config) — this script exists to add the visualization, not to change what gets trained.
 
-**Final run** (`make train`, 40 epochs, all 24 images): loss 1.52 → 0.198, converging smoothly (`outputs/inspection/training_history.png`). The checkpoint scores IoU 0.90 / Dice 0.95 **on its own training data** — that is a measure of fit, *not* generalization, and is reported only as evidence the model has the capacity to fit this task. The honest generalization estimate comes from cross-validation (§3.4/§3.8), where each model is scored on images it never saw.
+**Deliverable checkpoint** (`python scripts/train.py --epochs 25 --augment-features flip,rotate90,color_jitter`, all 24 images, no held-out split — the config recommended by `notebooks/feature_tta_selection.ipynb`, see "Feature & TTA selection" below): final train loss **0.3746** after 25 epochs (`outputs/inspection/training_history.png`). This run has no validation split (final-checkpoint case, §3.7), so no train-vs-generalization comparison is available for this exact checkpoint — the honest generalization estimate instead comes from cross-validation on the same config (§3.8): mean **IoU 0.7165 ± 0.0419**, **Dice 0.8319 ± 0.0306**, on images each fold's model never saw.
+
+An earlier exploratory run used the `TrainConfig` default of 40 epochs (no `--augment-features` override) and reached loss 1.52 → 0.198, scoring IoU 0.90 / Dice 0.95 on its own training data (a measure of fit, not generalization) — kept here only as a sanity check that the model can fit this task at all; it is not the config the current deliverable checkpoint uses.
 
 An earlier sanity run (20 epochs, 4 images held out) climbed from IoU 0.14 to ~0.60–0.67, against the ~0.19 no-learning baseline from §3.4 — the model is clearly learning, and the fold-to-fold wobble in that range is exactly the small-N variance §3.4 was built to average over.
 
@@ -154,16 +156,66 @@ Run `python scripts/check_tta.py` (or `make check-tta`) to compare plain / geome
 
 **`notebooks/tta_experiment.ipynb`** — trains the full-data model (all 24 images, no held-out split, up to 100 epochs, matching the final deliverable's training regime) and, after every epoch, renders a plain / geometric-TTA / geometric+color-TTA prediction grid on the 6 real test images, for qualitative inspection of how predictions evolve and how much TTA changes them at each stage of training. No validation split means no automatic best-epoch signal here — for a quantitative best-epoch estimate, see the CV ensemble comparison above (~18–21 epochs of a 25-epoch budget, on average).
 
+## Internal evaluation (`scripts/evaluate_cv.py`)
+
+Implements SPEC §3.8: pins down one official generalization estimate for the exact config the final deliverable checkpoint uses (`flip`, `rotate90`, `color_jitter`; 6-fold CV, seed 42; best-Dice checkpoint per fold, matching §3.7's checkpointing).
+
+| | mean IoU | mean Dice |
+|---|---|---|
+| Final config (6-fold CV) | **0.7165 ± 0.0419** | **0.8319 ± 0.0306** |
+
+Per-fold IoU ranged 0.637–0.761 (Dice 0.772–0.863); 5 of 6 folds ran the full 25-epoch budget or stopped only slightly early, one fold (fold 1) stopped early at epoch 10/20. This matches the earlier ensemble-comparison estimate for the same config (IoU 0.712 ± 0.039, a different but overlapping run) within the noise band already established in §3.5 — consistent evidence, not a new independent claim.
+
+Also renders `outputs/inspection/cv_validation_grid.png`: an **image | ground truth | prediction** row for all 24 training images, each one shown from the fold where it was held out (so every prediction in the grid comes from a model that never trained on that image). This is the qualitative counterpart to the IoU/Dice numbers above — useful for seeing *where* the model struggles (typically roof boundaries and small outbuildings) rather than just the aggregate score.
+
+Run `python scripts/evaluate_cv.py`; per-fold checkpoints are cached under `outputs/checkpoints/cv_eval/` so a re-run only trains folds that are missing.
+
+## Test inference (`scripts/predict.py`)
+
+Implements SPEC §3.9: loads the final full-data checkpoint (`outputs/checkpoints/best_model.pt`, trained on all 24 images, not a CV fold model), runs `roof_seg.tta.predict_with_tta()` with the default 8-way geometric TTA (no color variants — matching `notebooks/feature_tta_selection.ipynb`'s recommendation), thresholds at 0.5, and saves two files per test image to `outputs/predictions/`:
+
+- `{id}.png` — binary mask, 256×256, white = roof / black = background.
+- `{id}_overlay.png` — the mask blended (50% red) over the original RGB test image, for visual sanity-checking alignment against the actual roof.
+
+Run `python scripts/predict.py` (`--checkpoint` to override). Qualitative check (`scripts/check_tta.py`, see the TTA section above) shows the geometric TTA used here changes 0.4–2.1% of pixels vs. a plain single-pass prediction, concentrated at roof boundaries — a small refinement, not a different detection.
+
 ## Feature & TTA selection (`notebooks/feature_tta_selection.ipynb`)
 
-**Implemented, not yet run** (compute cost: 72 model trainings — see the notebook's own intro cell). Goes beyond the qualitative TTA check above by answering, with real cross-validated evidence: which of the 6 augmentation features to train with, which TTA mode to predict with, and how many epochs to train the final model for.
+**Run** (72 model trainings: 6 augmentation configs × 2 seeds × 6 folds — see the notebook's own intro cell). Goes beyond the qualitative TTA check above by answering, with real cross-validated evidence: which of the 6 augmentation features to train with, which TTA mode to predict with, and how many epochs to train the final model for.
 
 - **6 augmentation configs** — no-augmentation, the `3_features` baseline, that baseline plus each of the 3 extra features individually (isolating each one's own marginal effect), and the full `6_features` set.
 - **3 TTA modes** — none, geometric-only, geometric+color — evaluated on every trained fold's *validation* images, which (unlike the 6 real test images) have ground truth, so this scores TTA against actual IoU/Dice rather than just a pixel-agreement fraction.
 - **6 folds × 2 seeds** (12 runs per config) — a stronger check against fold-composition noise than the single-seed comparison above.
 - **No permanent per-fold checkpoints** (72 models × ~93MB ≈ 6.7GB — this exact project already hit a disk-space crash once). Results are appended to a resumable JSON log (`outputs/inspection/feature_tta_search.json`) instead, one (seed, config, fold) unit at a time.
 
-Ends with a concrete recommendation — printed by its final cells as a ready-to-run `python scripts/train.py --augment-features ... --epochs ...` command, plus the matching `predict_with_tta()` call for final test-set inference. `scripts/train.py` now accepts `--augment-features FEAT1,FEAT2,...` for exactly this.
+**Result — mean IoU, augmentation config × TTA mode** (12 runs per cell):
+
+| augmentation | none | geometric | geometric+color |
+|---|---|---|---|
+| no_augmentation | 0.686 ± 0.036 | 0.649 ± 0.053 | 0.682 ± 0.041 |
+| **3_features** (flip, rotate90, color_jitter) | 0.726 ± 0.036 | **0.743 ± 0.036** | 0.745 ± 0.033 |
+| 3_features + rgb_gamma | 0.730 ± 0.028 | 0.740 ± 0.035 | 0.741 ± 0.032 |
+| 3_features + perspective | 0.726 ± 0.034 | 0.732 ± 0.031 | 0.736 ± 0.032 |
+| 3_features + resized_crop | 0.719 ± 0.042 | 0.723 ± 0.040 | 0.727 ± 0.040 |
+| 6_features | 0.719 ± 0.032 | 0.727 ± 0.033 | 0.729 ± 0.033 |
+
+The best single cell (`3_features` + geometric+color TTA, mean IoU 0.745) beats the `3_features` + geometric-only baseline (0.743 ± 0.036) by only **+0.002 IoU** — nowhere near the project's 0.05–0.10 noise threshold — so the notebook's own selection logic keeps the simpler baseline rather than chasing that gap. Best-epoch distribution for `3_features` across all 12 (seed, fold) runs: `[10, 20, 20, 21, 21, 23, 23, 23, 24, 25, 25, 25]` (mean 21.7) → **recommended final epoch budget: 25** (mean + 15% margin, since the final run has no early stopping to fall back on).
+
+**Final recommendation** (printed by the notebook's last cell, and what actually produced this project's deliverable checkpoint and test predictions):
+
+```
+python scripts/train.py --epochs 25 --augment-features flip,rotate90,color_jitter
+```
+
+then `predict_with_tta()` with `transforms=DIHEDRAL_TRANSFORMS` (default), `color_variants=None` — exactly what `scripts/predict.py` and `scripts/check_tta.py` use.
+
+## Known limitations
+
+- **Dataset size (N=24 train / 6 test).** Every quantitative result in this project — CV metrics, augmentation comparisons, TTA checks — is drawn from a very small sample. Point estimates are reported alongside their spread (mean ± std across folds) specifically so this isn't hidden; several comparisons (e.g. augmentation on/off, §3.5) came back *suggestive, not established* precisely because the effect size was smaller than what 24 images can reliably resolve.
+- **One dropped/wrong label.** `278`'s original label was a copy of `270`'s (an annotation error), so `278` was moved to the test set instead of being trained on — see [DATA_REPORT.md §3](DATA_REPORT.md#3-duplicate--inconsistent-labels--278s-label-is-wrong). No other label was found to be similarly wrong, but the dataset wasn't large enough to rule out subtler annotation noise elsewhere.
+- **No ground truth for the real test set.** `278`, `535`, `537`, `539`, `551`, `553` have no labels, so their predictions can only be checked qualitatively (overlays, `check_tta.py` pixel-agreement) — the only quantitative generalization estimate (§3.8's CV IoU/Dice) comes from the 24 training images instead, standing in as a proxy for expected test-set quality.
+- **CV variance and non-independence at N=24.** 6-fold CV averages out much of the single-split noise, but per-fold scores (IoU 0.637–0.761 in the final §3.8 run) still swing more than the ~0.007–0.012 IoU differences the augmentation-feature comparisons were trying to detect (§3.5) — those comparisons should be read as directionally suggestive, not statistically conclusive. Folds also share most of their training data with each other (23/24 images in common between any two folds), so they aren't independent samples in the formal sense, and reusing the same 24 images to both *select* a configuration and *report* its performance risks a mild optimism bias that a full nested-CV would avoid but wasn't implemented here (§3.4/§6).
+- **TTA is a small, boundary-level refinement, not a different model.** Geometric TTA changes 0.4–2.1% of pixels vs. a plain forward pass, concentrated at roof edges (§3.9) — it is not expected to fix cases where the base model misses a roof outright.
 
 ## Workflow
 
@@ -211,7 +263,9 @@ dida_test_task/
 │   ├── check_model.py          # Sanity-check the model definition (§3.6) + untrained-prediction figure
 │   ├── train.py                 # Model training (§3.7)
 │   ├── train_with_test_preview.py # Same training run + a per-epoch test-set overlay (§3.7)
-│   └── predict.py               # Test-set inference (§3.9)
+│   ├── evaluate_cv.py           # Internal CV evaluation metric + validation grid (§3.8)
+│   ├── check_tta.py             # Sanity-check TTA on the real test images (§3.9)
+│   └── predict.py               # Test-set inference: masks + overlays (§3.9)
 ├── tests/
 │   ├── test_smoke.py           # Project setup + dataset-file smoke tests
 │   ├── test_dataset.py         # roof_seg.dataset unit tests (§3.3)
@@ -261,10 +315,13 @@ python scripts/build_data_convert.py
 # 3. (optional) Sanity-check the dataset loader
 python scripts/check_dataset.py
 
-# 4. Train segmentation model
-python scripts/train.py --epochs 40
+# 4. Train segmentation model (final config, per notebooks/feature_tta_selection.ipynb)
+python scripts/train.py --epochs 25 --augment-features flip,rotate90,color_jitter
 
-# 5. Generate predictions on test images
+# 5. (optional) Internal CV evaluation metric + validation grid
+python scripts/evaluate_cv.py
+
+# 6. Generate predictions on test images (masks + overlays)
 python scripts/predict.py --checkpoint outputs/checkpoints/best_model.pt
 ```
 
@@ -314,10 +371,10 @@ Final choices are recorded in the write-up after data inspection and validation 
 ## Deliverables
 
 - [x] Data inspection report (`DATA_REPORT.md` or notebook)
-- [ ] Reproducible training and inference code
-- [ ] Model checkpoint
-- [ ] 6 prediction PNGs for the test set
-- [ ] Write-up covering approach, findings, metrics, and limitations
+- [x] Reproducible training and inference code
+- [x] Model checkpoint (`outputs/checkpoints/best_model.pt`)
+- [x] 6 prediction PNGs for the test set (`outputs/predictions/{id}.png` + `{id}_overlay.png`)
+- [x] Write-up covering approach, findings, metrics, and limitations (this README + `DATA_REPORT.md` + `SPEC.md`)
 
 See the [acceptance checklist in SPEC.md](SPEC.md#4-acceptance-checklist-final-review) before submission.
 
@@ -332,6 +389,6 @@ See the [acceptance checklist in SPEC.md](SPEC.md#4-acceptance-checklist-final-r
 | 3.5 Augmentation | Done |
 | 3.6 Model | Done |
 | 3.7 Training | Done |
-| 3.8 Internal evaluation | Not started |
-| 3.9 Test inference | Not started |
-| 3.10 Documentation | Not started |
+| 3.8 Internal evaluation | Done |
+| 3.9 Test inference | Done |
+| 3.10 Documentation | Done |
